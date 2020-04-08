@@ -27,11 +27,14 @@ async fn handle_connection(peer_map: PeerMap, raw_stream: TcpStream, addr: Socke
         .expect("Error during the websocket handshake occurred");
     println!("WebSocket connection established: {}", addr);
 
+    let (outgoing, mut incoming) = ws_stream.split();
+    let msg = incoming.try_next().await;
+    println!("msg: {:?}", msg);
+
+    /*
     // Insert the write part of this peer to the peer map.
     let (tx, rx) = unbounded();
     peer_map.lock().unwrap().insert(addr, tx);
-
-    let (outgoing, incoming) = ws_stream.split();
 
     let broadcast_incoming = incoming.try_for_each(|msg| {
         println!(
@@ -50,8 +53,6 @@ async fn handle_connection(peer_map: PeerMap, raw_stream: TcpStream, addr: Socke
         for recp in broadcast_recipients {
             recp.unbounded_send(msg.clone()).unwrap();
         }
-
-        future::ok(())
     });
 
     let receive_from_others = rx.map(Ok).forward(outgoing);
@@ -61,6 +62,7 @@ async fn handle_connection(peer_map: PeerMap, raw_stream: TcpStream, addr: Socke
 
     println!("{} disconnected", &addr);
     peer_map.lock().unwrap().remove(&addr);
+        */
 }
 
 #[tokio::main]

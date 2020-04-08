@@ -1,4 +1,5 @@
 use wasm_bindgen::prelude::*;
+use wasm_bindgen::JsCast;
 
 // Called when the wasm module is instantiated
 #[wasm_bindgen(start)]
@@ -29,6 +30,14 @@ pub fn main() -> Result<(), JsValue> {
     circle.set_attribute("fill", "red")?;
     svg.append_child(&circle)?;
     body.append_child(&svg)?;
+
+    let ws = web_sys::WebSocket::new("ws://0.0.0.0:8080")?;
+    let cloned_ws = ws.clone();
+    let onopen_callback = Closure::wrap(Box::new(move |_| {
+        val.set_inner_html(&format!("{:?}", cloned_ws.send_with_str("ping")));
+    }) as Box<dyn FnMut(JsValue)>);
+    ws.set_onopen(Some(onopen_callback.as_ref().unchecked_ref()));
+    onopen_callback.forget();
 
     Ok(())
 }

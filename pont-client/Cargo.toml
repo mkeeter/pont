@@ -15,9 +15,12 @@ version = "0.3.4"
 features = [
   'Document',
   'Element',
+  'ErrorEvent',
   'HtmlElement',
+  'MessageEvent',
   'SvgElement',
   'SvgCircleElement',
   'Node',
+  "WebSocket",
   'Window',
 ]
