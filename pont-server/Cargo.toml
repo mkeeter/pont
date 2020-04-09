@@ -4,11 +4,14 @@ version = "0.1.0"
 authors = ["Matt Keeter <matt.j.keeter@gmail.com>"]
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 tokio-tungstenite = "*"
 tungstenite = "*"
 tokio = { version = "*", features = ["full"] }
+futures = "0.3.4"
 futures-util = "*"
 futures-channel = "*"
+pont-common = { path = "../pont-common" }
+serde = "^1.0.59"
+serde_derive = "^1.0.59"
+serde_json = "*"

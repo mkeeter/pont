@@ -4,20 +4,28 @@ use wasm_bindgen::JsCast;
 use std::sync::{Arc, Mutex};
 use web_sys::{WebSocket, MessageEvent};
 
+#[wasm_bindgen]
+extern "C" {
+    // Use `js_namespace` here to bind `console.log(..)` instead of just
+    // `log(..)`
+    #[wasm_bindgen(js_namespace = console)]
+    fn log(s: &str);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 struct State {
-    last_message: String,
     ws: WebSocket,
 }
 impl State {
-    fn on_message(&self, msg: JsValue) {
+    fn on_message(&self, msg: pont_common::Command) {
+        log(&format!("{:?}", msg));
     }
 
     fn start(&self) {
         self.ws.send_with_str("ping").expect("Failed to send ping");
     }
 }
-
-type StateHandle = Arc<Mutex<State>>;
 
 // Called when the wasm module is instantiated
 #[wasm_bindgen(start)]
@@ -50,7 +58,6 @@ pub fn main() -> Result<(), JsValue> {
     let ws = WebSocket::new("ws://0.0.0.0:8080")?;
 
     let handle = Arc::new(Mutex::new(State {
-        last_message: String::new(),
         ws: ws.clone()
     }));
 
@@ -64,10 +71,11 @@ pub fn main() -> Result<(), JsValue> {
 
     let handle_ = handle.clone();
     let onmessage_callback = Closure::wrap(Box::new(move |e: MessageEvent| {
-        let state = handle_.lock().unwrap();
-        let message = e.data();
-        state.on_message(message);
-    }) as Box<dyn FnMut(MessageEvent)>);
+            let msg = serde_json::from_str(&e.data().as_string().unwrap())
+                .unwrap();
+            let state = handle_.lock().unwrap();
+            state.on_message(msg);
+        }) as Box<dyn FnMut(MessageEvent)>);
     ws.set_onmessage(Some(onmessage_callback.as_ref().unchecked_ref()));
     onmessage_callback.forget();
 

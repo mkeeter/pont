@@ -22,14 +22,17 @@ type PeerMap = Arc<Mutex<HashMap<SocketAddr, Tx>>>;
 async fn handle_connection(peer_map: PeerMap, raw_stream: TcpStream, addr: SocketAddr) {
     println!("Incoming TCP connection from: {}", addr);
 
-    let ws_stream = tokio_tungstenite::accept_async(raw_stream)
+    let mut ws_stream = tokio_tungstenite::accept_async(raw_stream)
         .await
         .expect("Error during the websocket handshake occurred");
     println!("WebSocket connection established: {}", addr);
 
-    let (outgoing, mut incoming) = ws_stream.split();
-    let msg = incoming.try_next().await;
-    println!("msg: {:?}", msg);
+    println!("sending message to stream");
+    let m = pont_common::Command::CreateRoom;
+    futures::stream::once(
+            async { Ok(Message::Text(serde_json::to_string(&m).unwrap())) })
+        .forward(ws_stream).await;
+    println!("done");
 
     /*
     // Insert the write part of this peer to the peer map.
