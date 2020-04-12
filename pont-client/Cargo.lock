@@ -46,6 +46,7 @@ dependencies = [
 name = "pont-client"
 version = "0.1.0"
 dependencies = [
+ "js-sys",
  "pont-common",
  "serde_json",
  "wasm-bindgen",

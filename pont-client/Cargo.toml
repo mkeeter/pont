@@ -11,6 +11,7 @@ crate-type = ["cdylib"]
 pont-common = { path = "../pont-common" }
 serde_json = "*"
 wasm-bindgen = "^0.2"
+js-sys = "*"
 
 [dependencies.web-sys]
 version = "*"

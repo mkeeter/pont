@@ -1,13 +1,12 @@
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
+use wasm_bindgen::convert::FromWasmAbi;
 
 use std::sync::{Arc, Mutex};
 use web_sys::{WebSocket, MessageEvent};
 
 #[wasm_bindgen]
 extern "C" {
-    // Use `js_namespace` here to bind `console.log(..)` instead of just
-    // `log(..)`
     #[wasm_bindgen(js_namespace = console)]
     fn log(s: &str);
 }
@@ -25,6 +24,17 @@ impl State {
     fn start(&self) {
         self.ws.send_with_str("ping").expect("Failed to send ping");
     }
+}
+
+
+fn set_cb<F, T, G>(f: F, mut g: G)
+    where F: FnMut(T) + 'static,
+          T: FromWasmAbi + 'static,
+          G: FnMut(Option<&js_sys::Function>)
+{
+    let cb = Closure::wrap(Box::new(f) as Box<dyn FnMut(T)>);
+    g(Some(cb.as_ref().unchecked_ref()));
+    cb.forget();
 }
 
 // Called when the wasm module is instantiated
@@ -62,27 +72,18 @@ pub fn main() -> Result<(), JsValue> {
     }));
 
     let handle_ = handle.clone();
-    let onopen_callback = Closure::wrap(Box::new(move |_| {
-            let state = handle_.lock().unwrap();
-            state.start();
-        }) as Box<dyn FnMut(JsValue)>);
-    ws.set_onopen(Some(onopen_callback.as_ref().unchecked_ref()));
-    onopen_callback.forget();
+    set_cb(move |_: JsValue| {
+        let state = handle_.lock().unwrap();
+        state.start();
+    }, |cb| ws.set_onopen(cb));
 
     let handle_ = handle.clone();
-    let onmessage_callback = Closure::wrap(Box::new(move |e: MessageEvent| {
-            let msg = serde_json::from_str(&e.data().as_string().unwrap())
-                .unwrap();
-            let state = handle_.lock().unwrap();
-            state.on_message(msg);
-        }) as Box<dyn FnMut(MessageEvent)>);
-    ws.set_onmessage(Some(onmessage_callback.as_ref().unchecked_ref()));
-    onmessage_callback.forget();
+    set_cb(move |e: MessageEvent| {
+        let msg = serde_json::from_str(&e.data().as_string().unwrap())
+            .unwrap();
+        let state = handle_.lock().unwrap();
+        state.on_message(msg);
+    }, |cb| ws.set_onmessage(cb));
 
     Ok(())
-}
-
-#[wasm_bindgen]
-pub fn add(a: u32, b: u32) -> u32 {
-    a + b
 }
