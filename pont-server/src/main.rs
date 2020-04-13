@@ -28,11 +28,18 @@ async fn handle_connection(peer_map: PeerMap, raw_stream: TcpStream, addr: Socke
     println!("WebSocket connection established: {}", addr);
 
     println!("sending message to stream");
+    /*
     let m = pont_common::Command::CreateRoom;
     futures::stream::once(
             async { Ok(Message::Text(serde_json::to_string(&m).unwrap())) })
         .forward(ws_stream).await;
     println!("done");
+    */
+
+    //let (incoming, outgoing) = ws_stream.split();
+    //let msg = incoming.read().await;
+    let msg = ws_stream.next().await;
+    println!("{:?}", msg);
 
     /*
     // Insert the write part of this peer to the peer map.

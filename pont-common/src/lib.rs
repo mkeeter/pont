@@ -1,9 +1,15 @@
 use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Serialize, Deserialize)]
-pub enum Command {
-    CreateRoom,
-    JoinRoom(String),
+pub enum ClientMessage {
+    CreateRoom(String),
+    JoinRoom(String, String),
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum ServerMessage {
+    CreatedRoom(String),
+    JoinRoom(String, String),
 }
 
 #[cfg(test)]
