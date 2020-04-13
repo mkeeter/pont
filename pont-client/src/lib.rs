@@ -97,7 +97,7 @@ impl Handle {
         div.append_child(&p)?;
 
         let p = doc.create_element("p")?;
-        p.set_inner_html("Room name: ");
+        p.set_inner_html("Room: ");
         let input = doc.create_element("input")?;
         input.set_attribute("placeholder", "Create new room")?;
         input.set_id("room_input");
