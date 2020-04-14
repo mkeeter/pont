@@ -50,26 +50,6 @@ fn doc_div() -> (Document, HtmlElement) {
          .expect("Failed to convert into `HtmlElement`"))
 }
 
-fn validate_join_inputs() {
-    let doc = document();
-    let name_input = doc.get_element_by_id("name_input")
-         .expect("Could not find `name_input` element")
-         .dyn_into::<HtmlInputElement>()
-         .expect("Failed to convert into `HtmlInputElement`");
-    let room_input = doc.get_element_by_id("room_input")
-         .expect("Could not find `room_input` element")
-         .dyn_into::<HtmlInputElement>()
-         .expect("Failed to convert into `HtmlInputElement`");
-     console_log!("got {}, {}", name_input.value(),
-                                room_input.value());
-
-    let play_button = doc.get_element_by_id("play_button")
-         .expect("Could not find `name_input` element")
-         .dyn_into::<HtmlButtonElement>()
-         .expect("Failed to convert into `HtmlButtonElement`");
-     play_button.set_disabled(name_input.value().is_empty());
-}
-
 // Boilerplate to wrap, bind, and forget a callback
 fn set_event_cb<E, F, T>(obj: &E, name: &str, f: F)
     where E: JsCast + Clone + std::fmt::Debug,
@@ -86,9 +66,31 @@ fn set_event_cb<E, F, T>(obj: &E, name: &str, f: F)
 }
 
 impl Handle {
-    fn on_message(&mut self, msg: pont_common::ServerMessage) -> Result<(), JsValue> {
-        console_log!("{:?}", msg);
+    fn on_unknown_room(&mut self, room: String) -> Result<(), JsValue> {
+        let (doc, div) = doc_div();
+        let err = match doc.get_element_by_id("error") {
+            Some(err) => err,
+            None => {
+                let p = doc.create_element("p")?;
+                p.set_id("error");
+                div.append_child(&p)?;
+                p
+            },
+        }.dyn_into::<HtmlElement>()?;
+        err.set_text_content(Some(&format!("Could not find room '{}'", room)));
+
+        doc.get_element_by_id("play_button")
+            .expect("Could not find button")
+            .dyn_into::<HtmlButtonElement>()?
+            .set_disabled(false);
         Ok(())
+    }
+
+    fn on_message(&mut self, msg: ServerMessage) -> Result<(), JsValue> {
+        match msg {
+            ServerMessage::UnknownRoom(name) => self.on_unknown_room(name),
+            _ => Ok(()),
+        }
     }
 
     fn on_connected(&mut self) -> Result<(), JsValue> {
@@ -103,35 +105,54 @@ impl Handle {
         // When any of the text fields change, check to see whether
         // the "Join" button should be enabled
         let p = doc.create_element("p")?;
-        p.set_inner_html("Name: ");
+        p.set_text_content(Some("Name: "));
         let name_input = doc.create_element("input")?
             .dyn_into::<HtmlInputElement>()?;
         name_input.set_id("name_input");
         name_input.set_attribute("placeholder", "John Smith")?;
         p.append_child(&name_input)?;
-        set_event_cb(&name_input, "input",
-                     move |_: Event| validate_join_inputs());
         div.append_child(&p)?;
 
         let p = doc.create_element("p")?;
-        p.set_inner_html("Room: ");
+        p.set_text_content(Some("Room: "));
         let room_input = doc.create_element("input")?
             .dyn_into::<HtmlInputElement>()?;
         room_input.set_attribute("placeholder", "Create new room")?;
         room_input.set_id("room_input");
-        set_event_cb(&room_input, "input",
-                     move |_: Event| validate_join_inputs());
         p.append_child(&room_input)?;
         div.append_child(&p)?;
 
         let p = doc.create_element("p")?;
         let button = doc.create_element("button")?
             .dyn_into::<HtmlButtonElement>()?;
-        button.set_inner_html("Play!");
+        button.set_text_content(Some("Play!"));
         button.set_id("play_button");
         p.append_child(&button)?;
         button.set_disabled(true);
         div.append_child(&p)?;
+
+        let validate_join_inputs = {
+            let button = button.clone();
+            let name_input = name_input.clone();
+            let room_input = room_input.clone();
+            // Whenever either text field changes, call this validation
+            // function and enable / disable the Join button
+            move |_: Event| {
+                button.set_disabled({
+                    let name = name_input.value();
+                    let room = room_input.value();
+                    if name.is_empty() {
+                        true
+                    } else if room.is_empty() {
+                        false
+                    } else {
+                        room.trim().chars().filter(|c| *c == ' ').count() != 2
+                    }
+                });
+            }
+        };
+        set_event_cb(&name_input, "input", validate_join_inputs.clone());
+        set_event_cb(&room_input, "input", validate_join_inputs);
 
         // todo: use https://stackoverflow.com/a/24245592 to make Enter work
 
@@ -168,7 +189,7 @@ pub fn main() -> Result<(), JsValue> {
 
     // Manufacture the element we're gonna append
     let val = doc.create_element("p")?;
-    val.set_inner_html("Connecting...");
+    val.set_text_content(Some("Connecting..."));
 
     let div = doc.create_element("div")?;
     div.set_id("main");
