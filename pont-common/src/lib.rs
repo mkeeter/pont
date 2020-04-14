@@ -6,9 +6,10 @@ pub enum ClientMessage {
     JoinRoom(String, String),
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub enum ServerMessage {
     CreatedRoom(String),
     JoinRoom(String, String),
     UnknownRoom(String),
+    Done, // Used to stop worker task
 }

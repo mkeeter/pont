@@ -557,8 +557,6 @@ name = "pont-server"
 version = "0.1.0"
 dependencies = [
  "futures",
- "futures-channel",
- "futures-util",
  "pont-common",
  "rand",
  "serde",
