@@ -7,26 +7,44 @@ use std::{
 };
 use rand::Rng;
 
-use futures_util::{SinkExt, StreamExt};
+use futures::stream::FuturesUnordered;
+use futures_util::{SinkExt, StreamExt, FutureExt, future::{select, select_all}};
 use futures_channel::mpsc::{unbounded, UnboundedSender, UnboundedReceiver};
 
 use tokio::net::{TcpListener, TcpStream};
 use tungstenite::protocol::Message;
+use tokio_tungstenite::WebSocketStream;
 
 use pont_common::{ClientMessage, ServerMessage};
 
-type Rx = UnboundedReceiver<String>;
-type Tx = UnboundedSender<String>;
+struct ActivePlayer { name: String, ws: WebSocketStream<TcpStream> }
+
+type Rx = UnboundedReceiver<ActivePlayer>;
+type Tx = UnboundedSender<ActivePlayer>;
 type RoomList = Arc<Mutex<HashMap<String, Tx>>>;
 
+enum CombinedFuture {
+    NewActivePlayer(ActivePlayer)
+}
+
 async fn run_room(room_name: String, mut rx: Rx) {
-    // Wait on:
-    //  - Incoming player list
-    //  - All player websockets
-    println!("[{}] Started room", room_name);
-    while let Some(m) = rx.next().await {
-        println!("[{}]: Got message {:?}", room_name, m);
+
+    // Let the first player join the room
+    let mut players = Vec::new();
+    players.push(rx.next().await.expect("Could not get first player"));
+    println!("[{}] Started room with first player '{}'", room_name,
+             players[0].name);
+
+    let mut fs = FuturesUnordered::new();
+    fs.push(rx.next().map(|p| CombinedFuture::NewActivePlayer(p.unwrap())));
+    while !players.is_empty() {
+        match fs.next().await.unwrap() {
+            CombinedFuture::NewActivePlayer(p) => {
+                println!("Got new player {}", p.name);
+            }
+        }
     }
+    println!("[{}] All players left, shutting down.", room_name);
 }
 
 async fn handle_connection(rooms: RoomList,
@@ -50,19 +68,22 @@ async fn handle_connection(rooms: RoomList,
             ClientMessage::CreateRoom(name) => {
                 let room_name = namer();
                 let (tx, rx) = unbounded();
-                tx.unbounded_send(name)
-                    .expect("Could not send name");
-                rooms.lock().unwrap().insert(room_name.clone(), tx);
+                rooms.lock().unwrap().insert(room_name.clone(), tx.clone());
 
                 // This is the task which actually handles running
                 // each room, now that we've created it.
                 tokio::spawn(run_room(room_name.clone(), rx));
 
+                // Tell the player that they've entered the room
                 let msg = ServerMessage::CreatedRoom(room_name);
                 let encoded = serde_json::to_string(&msg)
                     .expect("Could not encode message");
                 ws_stream.send(Message::Text(encoded)).await
                     .expect("Could not send message");
+
+                // Then pass the player into the room's task
+                tx.unbounded_send(ActivePlayer {name, ws: ws_stream})
+                    .expect("Could not send name");
 
                 // We've passed everything to the spawned room task,
                 // so we return right away (rather than handling more
@@ -73,7 +94,7 @@ async fn handle_connection(rooms: RoomList,
                 // If the room name is valid, then join it by passing
                 // the new user and their connection into the room task
                 if let Some(tx) = rooms.lock().unwrap().get(&room) {
-                    tx.unbounded_send(name)
+                    tx.unbounded_send(ActivePlayer {name, ws: ws_stream})
                         .expect("Could not send name");
                     break;
                 }

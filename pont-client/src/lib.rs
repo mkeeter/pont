@@ -95,6 +95,8 @@ fn clear_err_span() {
     }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+
 impl Handle {
     fn on_unknown_room(&mut self, room: String) -> Result<(), JsValue> {
         let err = get_err_span()?;
