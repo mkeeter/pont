@@ -65,21 +65,42 @@ fn set_event_cb<E, F, T>(obj: &E, name: &str, f: F)
     cb.forget();
 }
 
+fn get_err_span() -> Result<HtmlElement, web_sys::Element> {
+    let (doc, div) = doc_div();
+    match doc.get_element_by_id("err_span") {
+        Some(err) => err,
+        None => {
+            let err_div = doc.create_element("div")?;
+            err_div.set_id("error");
+
+            let i = doc.create_element("i")?;
+            i.set_class_name("fas fa-exclamation-triangle");
+
+            let span = doc.create_element("span")?;
+            span.set_id("err_span");
+
+            err_div.append_child(&i)?;
+            err_div.append_child(&span)?;
+
+            div.append_child(&err_div)?;
+            span
+        },
+    }.dyn_into::<HtmlElement>()
+}
+
+fn clear_err_span() {
+    let (doc, div) = doc_div();
+    if let Some(err) = doc.get_element_by_id("error") {
+        div.remove_child(&err);
+    }
+}
+
 impl Handle {
     fn on_unknown_room(&mut self, room: String) -> Result<(), JsValue> {
-        let (doc, div) = doc_div();
-        let err = match doc.get_element_by_id("error") {
-            Some(err) => err,
-            None => {
-                let p = doc.create_element("p")?;
-                p.set_id("error");
-                div.append_child(&p)?;
-                p
-            },
-        }.dyn_into::<HtmlElement>()?;
+        let err = get_err_span()?;
         err.set_text_content(Some(&format!("Could not find room '{}'", room)));
 
-        doc.get_element_by_id("play_button")
+        document().get_element_by_id("play_button")
             .expect("Could not find button")
             .dyn_into::<HtmlButtonElement>()?
             .set_disabled(false);

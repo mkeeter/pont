@@ -1,0 +1,10 @@
+body {
+    font-family: Inconsolata, "Courier New", monospace;
+    margin-left: 20px;
+}
+div#error {
+    color: #F92672;
+}
+span#err_span {
+    margin-left: 10px;
+}
