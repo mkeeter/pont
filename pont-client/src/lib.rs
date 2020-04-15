@@ -7,6 +7,7 @@ use web_sys::{
     Event,
     EventTarget,
     Document,
+    KeyboardEvent,
     HtmlButtonElement,
     HtmlElement,
     HtmlInputElement,
@@ -88,11 +89,22 @@ fn get_err_span() -> Result<HtmlElement, web_sys::Element> {
     }.dyn_into::<HtmlElement>()
 }
 
-fn clear_err_span() {
-    let (doc, div) = doc_div();
-    if let Some(err) = doc.get_element_by_id("error") {
-        div.remove_child(&err);
+fn clear_div(div: &HtmlElement) -> Result<(), JsValue> {
+    while let Some(c) = div.first_child() {
+        div.remove_child(&c)?;
     }
+    Ok(())
+}
+
+fn append_chat(msg: &str) -> Result<(), JsValue> {
+    let doc = document();
+    if let Some(div) = doc.get_element_by_id("chat") {
+        let p = doc.create_element("p")?;
+        p.set_text_content(Some(msg));
+        p.set_class_name("msg");
+        div.append_child(&p)?;
+    }
+    Ok(())
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -109,9 +121,69 @@ impl Handle {
         Ok(())
     }
 
+    fn sender(&self) -> impl Fn(ClientMessage) {
+        let ws = self.ws.clone();
+        move |msg| {
+            let encoded = serde_json::to_string(&msg)
+                .expect("Failed to encode");
+            ws.send_with_str(&encoded)
+                .expect("Could not send message");
+        }
+    }
+
+    fn on_joined_room(&mut self, name: String, room: String) -> Result<(), JsValue> {
+        let (doc, div) = doc_div();
+        clear_div(&div)?;
+
+        let p = doc.create_element("p")?;
+        p.set_text_content(Some(&format!("Room name: {}", room)));
+        div.append_child(&p)?;
+
+        let p = doc.create_element("p")?;
+        p.set_text_content(Some(&format!("Your name: {}", name)));
+        div.append_child(&p)?;
+
+        let chat_div = doc.create_element("div")?;
+        chat_div.set_id("chat");
+        div.append_child(&chat_div)?;
+
+        for i in 0..100 {
+            append_chat(&format!("hi {}", i))?;
+        }
+
+        let chat_input = doc.create_element("input")?
+            .dyn_into::<HtmlInputElement>()?;
+        chat_input.set_id("chat_input");
+        chat_input.set_attribute("placeholder", "Send message...")?;
+
+        let sender = self.sender();
+        let p = doc.create_element("p")?;
+        p.append_child(&chat_input)?;
+        div.append_child(&p)?;
+
+        // If Enter is pressed while focus is in the chat box,
+        // send a chat message to the server.
+        set_event_cb(&chat_input.clone(), "keyup", move |e: KeyboardEvent| {
+            if e.key_code() == 13 { // Enter key
+                e.prevent_default();
+                let i = chat_input.value();
+                if !i.is_empty() {
+                    chat_input.set_value("");
+                    sender(ClientMessage::Chat(i));
+                }
+            }
+        });
+
+        self.state = State::InRoom;
+        Ok(())
+    }
+
     fn on_message(&mut self, msg: ServerMessage) -> Result<(), JsValue> {
+        use ServerMessage::*;
+        console_log!("Got message {:?}", msg);
         match msg {
-            ServerMessage::UnknownRoom(name) => self.on_unknown_room(name),
+            UnknownRoom(name) => self.on_unknown_room(name),
+            JoinedRoom{name, room} => self.on_joined_room(name, room),
             _ => Ok(()),
         }
     }
@@ -120,8 +192,9 @@ impl Handle {
         assert!(self.state == State::Connecting);
         self.state = State::CreateOrJoin;
 
+        // Remove the "Connecting..." message
         let (doc, div) = doc_div();
-        div.remove_child(&div.child_nodes().item(0).expect("div should have one child"))?;
+        clear_div(&div)?;
 
         // When any of the text fields change, check to see whether
         // the "Join" button should be enabled
@@ -177,7 +250,7 @@ impl Handle {
 
         // todo: use https://stackoverflow.com/a/24245592 to make Enter work
 
-        let ws = self.ws.clone();
+        let send = self.sender();
         set_event_cb(&button.clone(), "click", move |_: Event| {
             button.set_disabled(true);
             let name = name_input.value();
@@ -187,10 +260,7 @@ impl Handle {
             } else {
                 ClientMessage::JoinRoom(name, room)
             };
-            let encoded = serde_json::to_string(&msg)
-                .expect("Failed to encode");
-            ws.send_with_str(&encoded)
-                .expect("Could not send message");
+            send(msg);
         });
 
         Ok(())
@@ -239,8 +309,8 @@ pub fn main() -> Result<(), JsValue> {
             .expect("Failed to handle message");
     });
 
-    set_event_cb(&ws, "close", move |e: Event| {
-        panic!("WS closed?!");
+    set_event_cb(&ws, "close", move |_: Event| {
+        console_log!("Socket closed");
     });
 
     Ok(())

@@ -8,3 +8,12 @@ div#error {
 span#err_span {
     margin-left: 10px;
 }
+
+div#chat {
+    height: 100px;
+    overflow-y: auto;
+}
+p.msg {
+    margin-top: 2px;
+    margin-bottom: 2px;
+}

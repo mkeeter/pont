@@ -7,13 +7,13 @@ use std::{
 };
 use rand::Rng;
 
-use futures::{select, future};
-use futures::stream::{StreamExt};
-use futures::sink::{SinkExt};
+use futures::future;
+use futures::stream::{StreamExt, SplitSink};
+use futures::sink::SinkExt;
 use futures::channel::mpsc::{unbounded, UnboundedSender, UnboundedReceiver};
 
 use tokio::net::{TcpListener, TcpStream};
-use tungstenite::protocol::Message;
+use tungstenite::protocol::Message as WebsocketMessage;
 use tokio_tungstenite::WebSocketStream;
 
 use pont_common::{ClientMessage, ServerMessage};
@@ -26,42 +26,122 @@ struct PlayerJoined {
 
 type RoomList = Arc<Mutex<HashMap<String, UnboundedSender<PlayerJoined>>>>;
 
-async fn run_room(room_name: String,
-                  mut in_rx: UnboundedReceiver<PlayerJoined>)
-{
-    let mut players = HashMap::new();
+struct ActivePlayer {
+    name: String,
+    ws: UnboundedSender<ServerMessage>,
+}
 
+struct Room {
+    name: String,
+    started: bool,
+    players: HashMap<SocketAddr, ActivePlayer>,
+}
+
+impl Room {
+    fn running(&self) -> bool {
+        !self.started || self.players.len() > 0
+    }
+
+    fn add_player(&mut self, addr: SocketAddr, name: String,
+        ws: SplitSink<WebSocketStream<TcpStream>, WebsocketMessage>)
+    {
+        // Store an UnboundedSender so we can write to websockets
+        // without an async call, with messages being passed to
+        // the actual socket by another worker task.
+        let (ws_tx, ws_rx) = unbounded();
+        tokio::spawn(ws_rx
+            .map(|c| serde_json::to_string(&c)
+                .expect("Could not encode"))
+            .map(|t| WebsocketMessage::Text(t))
+            .map(|m| Ok(m))
+            .forward(ws));
+
+        let player = ActivePlayer { name, ws: ws_tx };
+        player.ws.unbounded_send(ServerMessage::JoinedRoom{
+                name: player.name.clone(),
+                room: self.name.clone()
+            }).expect("Could not send JoinedRoom");
+
+        self.players.insert(addr, player);
+        self.started = true;
+    }
+
+    fn on_message(&mut self, addr: SocketAddr, msg: ClientMessage) {
+        println!("[{}] Got message {:?} from {}", self.name, msg, addr);
+        match msg {
+            ClientMessage::Disconnected => {
+                if let Some(p) = self.players.remove(&addr) {
+                    println!("[{}] Removed disconnected player '{}'",
+                             self.name, p.name);
+                } else {
+                    println!("[{}] Tried to remove non-existent player at {}",
+                             self.name, addr);
+                }
+            },
+            _ => (),
+        }
+    }
+}
+
+async fn run_room(room_name: String,
+                  in_rx: UnboundedReceiver<PlayerJoined>)
+{
     // We'll funnel all Websocket communication through this MPSC connection,
     // so each websocket's incoming stream runs in its own little task
     let (ws_tx, ws_rx) = unbounded();
 
-    println!("[{}] Started room!", room_name);
+    let mut room = Room {
+        name: room_name,
+        started: false,
+        players: HashMap::new(),
+    };
 
-    let mut starting = true;
-    while starting || players.len() > 0 {
-        let p = in_rx.next().await
-            .expect("Could not get player joining");
-        println!("[{}] Player '{}' joined", room_name, p.name);
+    println!("[{}] Started room!", room.name);
 
-        let (incoming, outgoing) = p.ws.split();
-        players.insert(p.addr, (p.name, incoming));
-        starting = false;
+    enum Either {
+        Left(PlayerJoined),
+        Right((SocketAddr, ClientMessage)),
+    }
+    use Either::*;
 
-        tokio::spawn(outgoing.map(|m|
+    let mut inputs = futures::stream::select(
+        in_rx.map(|p| Left(p)),
+        ws_rx.map(|m| Right(m)));
+
+    while room.running() {
+        if let Some(m) = inputs.next().await {
             match m {
-                Ok(Message::Text(t)) => Some(
-                    serde_json::from_str::<ClientMessage>(&t)
-                        .expect("Could not decode message")),
-                _ => None,
-            })
-            .take_while(|m| future::ready(m.is_some()))
-            .map(|m| m.unwrap())
-            .chain(futures::stream::once(async { ClientMessage::Disconnected }))
-            .map(|m| Ok(m))
-            .forward(ws_tx.clone()));
+                Left(p) => {
+                    println!("[{}] Player '{}' joined", room.name, p.name);
+
+                    let (incoming, outgoing) = p.ws.split();
+                    room.add_player(p.addr, p.name, incoming);
+
+                    // Messages from every websocket are asynchronously
+                    // forwarded to a single MPSC queue
+                    let addr = p.addr.clone();
+                    tokio::spawn(outgoing.map(|m|
+                        match m {
+                            Ok(WebsocketMessage::Text(t)) => Some(
+                                serde_json::from_str::<ClientMessage>(&t)
+                                    .expect("Could not decode message")),
+                            _ => None,
+                        })
+                        .take_while(|m| future::ready(m.is_some()))
+                        .map(|m| m.unwrap())
+                        .chain(futures::stream::once(async {
+                            ClientMessage::Disconnected }))
+                        .map(move |m| Ok((addr, m)))
+                        .forward(ws_tx.clone()));
+                }
+                Right((addr, msg)) => {
+                    room.on_message(addr, msg);
+                }
+            }
+        }
     }
 
-    println!("[{}] All players left, shutting down.", room_name);
+    println!("[{}] All players left, closing room.", room.name);
 }
 
 async fn handle_connection(rooms: RoomList,
@@ -78,31 +158,22 @@ async fn handle_connection(rooms: RoomList,
 
     // Clients are only allowed to send text messages at this stage.
     // If they do anything else, then just disconnect.
-    while let Some(Ok(Message::Text(t))) = ws_stream.next().await {
+    while let Some(Ok(WebsocketMessage::Text(t))) = ws_stream.next().await {
         let msg = serde_json::from_str::<ClientMessage>(&t)
             .expect("Could not decode message");
         match msg {
             ClientMessage::CreateRoom(name) => {
                 let room_name = namer();
-                let (mut tx, rx) = unbounded();
-                {   // Nested scope to avoid issues with yield point
-                    rooms.lock().unwrap().insert(room_name.clone(), tx.clone());
-                }
+                let (tx, rx) = unbounded();
+                rooms.lock().unwrap().insert(room_name.clone(), tx.clone());
 
                 // This is the task which actually handles running
                 // each room, now that we've created it.
-                tokio::spawn(run_room(room_name.clone(), rx));
+                tokio::spawn(run_room(room_name, rx));
 
-                // Tell the player that they've entered the room
-                let msg = ServerMessage::CreatedRoom(room_name);
-                let encoded = serde_json::to_string(&msg)
-                    .expect("Could not encode message");
-                ws_stream.send(Message::Text(encoded)).await
-                    .expect("Could not send message");
-
-                // Then pass the player into the room's task
-                tx.send(PlayerJoined {addr, name, ws: ws_stream})
-                    .await
+                // Pass the player into the room's task, which will inform
+                // then that they've joined the room
+                tx.unbounded_send(PlayerJoined {addr, name, ws: ws_stream})
                     .expect("Could not pass player to room");
 
                 // We've passed everything to the spawned room task,
@@ -117,24 +188,18 @@ async fn handle_connection(rooms: RoomList,
                 // We do a little bit of dancing here to avoid the borrow
                 // checker, since the tx in tx.send(...).await must live
                 // through yield points.
-                let mut tx = None;
-                if let Some(tx_) = rooms.lock().unwrap().get(&room) {
-                    tx = Some(tx_.clone());
-                }
-
-                if let Some(mut tx) = tx {
-                    tx.send(PlayerJoined {addr, name, ws: ws_stream})
-                        .await
+                if let Some(tx) = rooms.lock().unwrap().get(&room) {
+                    tx.unbounded_send(PlayerJoined {addr, name, ws: ws_stream})
                         .expect("Could not send player into room");
                     return;
-                } else {
-                    // Otherwise, here's the error handler
-                    let msg = ServerMessage::UnknownRoom(room);
-                    let encoded = serde_json::to_string(&msg)
-                        .expect("Could not encode message");
-                    ws_stream.send(Message::Text(encoded)).await
-                        .expect("Could not send message");
                 }
+
+                // Otherwise, here's the error handler
+                let msg = ServerMessage::UnknownRoom(room);
+                let encoded = serde_json::to_string(&msg)
+                    .expect("Could not encode message");
+                ws_stream.send(WebsocketMessage::Text(encoded)).await
+                    .expect("Could not send message");
             }
             msg => {
                 println!("[{}] Got unexpected message {:?}", addr, msg);

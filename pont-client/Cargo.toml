@@ -25,6 +25,7 @@ features = [
   'HtmlElement',
   'HtmlButtonElement',
   'HtmlInputElement',
+  'KeyboardEvent',
   'Location',
   'MessageEvent',
   'SvgElement',
