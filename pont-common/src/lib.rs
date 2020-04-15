@@ -4,6 +4,7 @@ use serde::{Serialize, Deserialize};
 pub enum ClientMessage {
     CreateRoom(String),
     JoinRoom(String, String),
+    Disconnected,
 }
 
 #[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]

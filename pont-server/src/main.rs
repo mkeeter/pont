@@ -10,7 +10,7 @@ use rand::Rng;
 use futures::{select, future};
 use futures::stream::{StreamExt};
 use futures::sink::{SinkExt};
-use tokio::sync::mpsc::{unbounded_channel, UnboundedSender, UnboundedReceiver};
+use futures::channel::mpsc::{unbounded, UnboundedSender, UnboundedReceiver};
 
 use tokio::net::{TcpListener, TcpStream};
 use tungstenite::protocol::Message;
@@ -18,73 +18,49 @@ use tokio_tungstenite::WebSocketStream;
 
 use pont_common::{ClientMessage, ServerMessage};
 
-struct ActivePlayer { name: String, ws: WebSocketStream<TcpStream> }
-impl std::fmt::Debug for ActivePlayer {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ActivePlayer")
-         .field("name", &self.name)
-         .field("ws", &0)
-         .finish()
-    }
+struct PlayerJoined {
+    name: String,
+    addr: SocketAddr,
+    ws: WebSocketStream<TcpStream>,
 }
 
-type Rx = UnboundedReceiver<ActivePlayer>;
-type Tx = UnboundedSender<ActivePlayer>;
-type RoomList = Arc<Mutex<HashMap<String, Tx>>>;
+type RoomList = Arc<Mutex<HashMap<String, UnboundedSender<PlayerJoined>>>>;
 
-enum CombinedFuture {
-    NewActivePlayer(ActivePlayer)
-}
-
-async fn player(ws: WebSocketStream<TcpStream>,
-                rx: UnboundedReceiver<ServerMessage>,
-                tx: UnboundedSender<ClientMessage>)
+async fn run_room(room_name: String,
+                  mut in_rx: UnboundedReceiver<PlayerJoined>)
 {
-    let (outgoing, incoming) = ws.split();
+    let mut players = HashMap::new();
 
-    // This stream passes incoming messages from the websocket to rx
-    let a = incoming.map(|m|
-        match m {
-            Ok(Message::Text(t)) => Some(
-                serde_json::from_str::<ClientMessage>(&t)
-                    .expect("Could not decode message")),
-            _ => None,
-        })
-        .take_while(|m| future::ready(m.is_some()))
-        .map(|m| tx.send(m.unwrap()));
+    // We'll funnel all Websocket communication through this MPSC connection,
+    // so each websocket's incoming stream runs in its own little task
+    let (ws_tx, ws_rx) = unbounded();
 
-    // This stream passes outgoing messages from tx to the websocket
-    let b = rx
-        .take_while(|m| future::ready(*m != ServerMessage::Done))
-        .map(|m| {
-            let encoded = serde_json::to_string(&m)
-                .expect("Could not encode message");
-            Ok(Message::Text(encoded))
-        })
-        .forward(outgoing);
+    println!("[{}] Started room!", room_name);
 
-    // TODO: run both of them!
-}
+    let mut starting = true;
+    while starting || players.len() > 0 {
+        let p = in_rx.next().await
+            .expect("Could not get player joining");
+        println!("[{}] Player '{}' joined", room_name, p.name);
 
-async fn run_room(room_name: String, mut rx: Rx) {
+        let (incoming, outgoing) = p.ws.split();
+        players.insert(p.addr, (p.name, incoming));
+        starting = false;
 
-    // Let the first player join the room
-    let mut players = Vec::new();
-    players.push(rx.next().await.expect("Could not get first player"));
-    println!("[{}] Started room with first player '{}'", room_name,
-             players[0].name);
-
-    /*
-    let mut fs = FuturesUnordered::new();
-    fs.push(rx.next().map(|p| CombinedFuture::NewActivePlayer(p.unwrap())));
-    while !players.is_empty() {
-        match fs.next().await.unwrap() {
-            CombinedFuture::NewActivePlayer(p) => {
-                println!("Got new player {}", p.name);
-            }
-        }
+        tokio::spawn(outgoing.map(|m|
+            match m {
+                Ok(Message::Text(t)) => Some(
+                    serde_json::from_str::<ClientMessage>(&t)
+                        .expect("Could not decode message")),
+                _ => None,
+            })
+            .take_while(|m| future::ready(m.is_some()))
+            .map(|m| m.unwrap())
+            .chain(futures::stream::once(async { ClientMessage::Disconnected }))
+            .map(|m| Ok(m))
+            .forward(ws_tx.clone()));
     }
-    */
+
     println!("[{}] All players left, shutting down.", room_name);
 }
 
@@ -93,12 +69,12 @@ async fn handle_connection(rooms: RoomList,
                            raw_stream: TcpStream,
                            addr: SocketAddr)
 {
-    println!("Incoming TCP connection from: {}", addr);
+    println!("[{}] Incoming TCP connection", addr);
 
     let mut ws_stream = tokio_tungstenite::accept_async(raw_stream)
         .await
         .expect("Error during the websocket handshake occurred");
-    println!("WebSocket connection established: {}", addr);
+    println!("[{}] WebSocket connection established", addr);
 
     // Clients are only allowed to send text messages at this stage.
     // If they do anything else, then just disconnect.
@@ -108,8 +84,10 @@ async fn handle_connection(rooms: RoomList,
         match msg {
             ClientMessage::CreateRoom(name) => {
                 let room_name = namer();
-                let (tx, rx) = unbounded_channel();
-                rooms.lock().unwrap().insert(room_name.clone(), tx.clone());
+                let (mut tx, rx) = unbounded();
+                {   // Nested scope to avoid issues with yield point
+                    rooms.lock().unwrap().insert(room_name.clone(), tx.clone());
+                }
 
                 // This is the task which actually handles running
                 // each room, now that we've created it.
@@ -123,31 +101,48 @@ async fn handle_connection(rooms: RoomList,
                     .expect("Could not send message");
 
                 // Then pass the player into the room's task
-                tx.send(ActivePlayer {name, ws: ws_stream})
-                    .expect("Could not send name");
+                tx.send(PlayerJoined {addr, name, ws: ws_stream})
+                    .await
+                    .expect("Could not pass player to room");
 
                 // We've passed everything to the spawned room task,
                 // so we return right away (rather than handling more
                 // messages from the websocket)
-                break;
+                return;
             },
             ClientMessage::JoinRoom(name, room) => {
                 // If the room name is valid, then join it by passing
                 // the new user and their connection into the room task
-                if let Some(tx) = rooms.lock().unwrap().get(&room) {
-                    tx.send(ActivePlayer {name, ws: ws_stream})
-                        .expect("Could not send name");
-                    break;
+                //
+                // We do a little bit of dancing here to avoid the borrow
+                // checker, since the tx in tx.send(...).await must live
+                // through yield points.
+                let mut tx = None;
+                if let Some(tx_) = rooms.lock().unwrap().get(&room) {
+                    tx = Some(tx_.clone());
                 }
-                // Otherwise, here's the error handler
-                let msg = ServerMessage::UnknownRoom(room);
-                let encoded = serde_json::to_string(&msg)
-                    .expect("Could not encode message");
-                ws_stream.send(Message::Text(encoded)).await
-                    .expect("Could not send message");
+
+                if let Some(mut tx) = tx {
+                    tx.send(PlayerJoined {addr, name, ws: ws_stream})
+                        .await
+                        .expect("Could not send player into room");
+                    return;
+                } else {
+                    // Otherwise, here's the error handler
+                    let msg = ServerMessage::UnknownRoom(room);
+                    let encoded = serde_json::to_string(&msg)
+                        .expect("Could not encode message");
+                    ws_stream.send(Message::Text(encoded)).await
+                        .expect("Could not send message");
+                }
+            }
+            msg => {
+                println!("[{}] Got unexpected message {:?}", addr, msg);
+                break;
             }
         }
     }
+    println!("[{}] Dropping connection", addr);
 }
 
 #[tokio::main]

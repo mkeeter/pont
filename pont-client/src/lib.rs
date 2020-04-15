@@ -122,8 +122,6 @@ impl Handle {
 
         let (doc, div) = doc_div();
         div.remove_child(&div.child_nodes().item(0).expect("div should have one child"))?;
-        console_log!("removed child");
-        console_log!("{:?}", div.child_nodes().item(0));
 
         // When any of the text fields change, check to see whether
         // the "Join" button should be enabled
@@ -193,7 +191,6 @@ impl Handle {
                 .expect("Failed to encode");
             ws.send_with_str(&encoded)
                 .expect("Could not send message");
-            console_log!("msg: {:?}", encoded);
         });
 
         Ok(())
@@ -234,13 +231,16 @@ pub fn main() -> Result<(), JsValue> {
         state.on_connected().expect("Failed to connect");
     });
 
-    let handle_ = handle.clone();
     set_event_cb(&ws, "message", move |e: MessageEvent| {
         let msg = serde_json::from_str(&e.data().as_string().unwrap())
             .expect("Failed to decode message");
-        let mut state = handle_.lock().unwrap();
+        let mut state = handle.lock().unwrap();
         state.on_message(msg)
             .expect("Failed to handle message");
+    });
+
+    set_event_cb(&ws, "close", move |e: Event| {
+        panic!("WS closed?!");
     });
 
     Ok(())
