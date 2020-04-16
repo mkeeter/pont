@@ -96,30 +96,6 @@ fn clear_div(div: &HtmlElement) -> Result<(), JsValue> {
     Ok(())
 }
 
-fn append_chat(name: &str, msg: &str) -> Result<(), JsValue> {
-    let doc = document();
-    if let Some(div) = doc.get_element_by_id("chat") {
-        let p = doc.create_element("p")?;
-        p.set_class_name("msg");
-
-        let b = doc.create_element("b")?;
-        b.set_text_content(Some(name));
-        p.append_child(&b)?;
-
-        let s = doc.create_element("b")?;
-        s.set_text_content(Some(":"));
-        p.append_child(&s)?;
-
-        let s = doc.create_element("span")?;
-        s.set_text_content(Some(msg));
-        p.append_child(&s)?;
-
-        div.append_child(&p)?;
-        p.scroll_into_view();
-    }
-    Ok(())
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 
 impl Handle {
@@ -144,8 +120,43 @@ impl Handle {
         }
     }
 
-    fn on_chat(&mut self, from: String, message: String) -> Result<(), JsValue> {
-        append_chat(&from, &message)
+    fn on_chat(&self, from: String, message: String) -> Result<(), JsValue> {
+        let doc = document();
+        if let Some(div) = doc.get_element_by_id("chat") {
+            let p = doc.create_element("p")?;
+            p.set_class_name("msg");
+
+            let b = doc.create_element("b")?;
+            b.set_text_content(Some(&from));
+            p.append_child(&b)?;
+
+            let s = doc.create_element("b")?;
+            s.set_text_content(Some(":"));
+            p.append_child(&s)?;
+
+            let s = doc.create_element("span")?;
+            s.set_text_content(Some(&message));
+            p.append_child(&s)?;
+
+            div.append_child(&p)?;
+            p.scroll_into_view();
+        }
+        Ok(())
+    }
+
+    fn on_information(&self, message: String) -> Result<(), JsValue> {
+        let doc = document();
+        if let Some(div) = doc.get_element_by_id("chat") {
+            let p = doc.create_element("p")?;
+            p.set_class_name("msg");
+
+            let i = doc.create_element("i")?;
+            i.set_text_content(Some(&message));
+            p.append_child(&i)?;
+            div.append_child(&p)?;
+            p.scroll_into_view();
+        }
+        Ok(())
     }
 
     fn on_joined_room(&mut self, name: String, room: String) -> Result<(), JsValue> {
@@ -208,7 +219,7 @@ impl Handle {
             UnknownRoom(name) => self.on_unknown_room(name),
             JoinedRoom{name, room} => self.on_joined_room(name, room),
             Chat{from, message} => self.on_chat(from, message),
-            _ => Ok(()),
+            Information(message) => self.on_information(message),
         }
     }
 

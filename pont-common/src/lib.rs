@@ -18,5 +18,6 @@ pub enum ServerMessage {
     Chat {
         from: String,
         message: String,
-    }
+    },
+    Information(String),
 }

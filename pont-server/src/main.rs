@@ -59,8 +59,17 @@ impl Room {
         let player = ActivePlayer { name, ws: ws_tx };
         player.ws.unbounded_send(ServerMessage::JoinedRoom{
                 name: player.name.clone(),
-                room: self.name.clone()
-            }).expect("Could not send JoinedRoom");
+                room: self.name.clone() })
+            .expect("Could not send JoinedRoom");
+        player.ws.unbounded_send(ServerMessage::Information(
+                format!("Welcome, {}!", player.name.clone())))
+            .expect("Could not send JoinedRoom");
+
+        for p in self.players.values() {
+            p.ws.unbounded_send(ServerMessage::Information(
+                    format!("{} joined the room", player.name)))
+                .expect("Failed to write chat message");
+        }
 
         self.players.insert(addr, player);
         self.started = true;
@@ -73,6 +82,11 @@ impl Room {
                 if let Some(p) = self.players.remove(&addr) {
                     println!("[{}] Removed disconnected player '{}'",
                              self.name, p.name);
+                    for p in self.players.values() {
+                        p.ws.unbounded_send(ServerMessage::Information(
+                                format!("{} disconnected", p.name)))
+                            .expect("Failed to write chat message");
+                    }
                 } else {
                     println!("[{}] Tried to remove non-existent player at {}",
                              self.name, addr);
