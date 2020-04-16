@@ -224,7 +224,7 @@ async fn handle_connection(rooms: RoomList,
 async fn main() -> Result<(), IoError> {
     let addr = env::args()
         .nth(1)
-        .unwrap_or_else(|| "127.0.0.1:8080".to_string());
+        .unwrap_or_else(|| "0.0.0.0:8080".to_string());
 
     // words.txt is the EFF's random word list for passphrases
     let words = include_str!("words.txt")
