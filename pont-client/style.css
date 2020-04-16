@@ -47,4 +47,5 @@ form button {
 
 form:invalid button {
     color: #93a1a1;
+    background-color: #eee8d5;
 }
