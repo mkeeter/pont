@@ -1,14 +1,16 @@
+use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 
-#[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum ClientMessage {
     CreateRoom(String),
     JoinRoom(String, String),
     Chat(String),
+    Play(Piece, i32, i32),
     Disconnected,
 }
 
-#[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum ServerMessage {
     JoinedRoom {
         name: String,
@@ -20,4 +22,36 @@ pub enum ServerMessage {
         message: String,
     },
     Information(String),
+    Players {
+        players: Vec<(String, usize)>,
+        turn: usize,
+    },
+    Board(Board), // Used to send the initial board
+    Played(Piece, i32, i32), // Incremental updates
+    InvalidMove(String),
 }
+
+#[derive(Copy, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum Shape {
+    Clover,
+    Star,
+    Square,
+    Diamond,
+    Cross,
+    Circle,
+}
+
+#[derive(Copy, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum Color {
+    Orange,
+    Yellow,
+    Green,
+    Red,
+    Blue,
+    Purple,
+}
+
+#[derive(Copy, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct Piece(Shape, Color);
+
+type Board = HashMap<(i32, i32), Piece>;

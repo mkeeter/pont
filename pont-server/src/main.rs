@@ -101,8 +101,10 @@ impl Room {
                             message: c.clone()})
                         .expect("Failed to write chat message");
                 }
-            }
-            _ => (),
+            },
+            ClientMessage::CreateRoom(_) | ClientMessage::JoinRoom(_, _) => {
+                println!("Invalid client message {:?}", msg);
+            },
         }
     }
 }
