@@ -27,6 +27,8 @@ pub enum ServerMessage {
         players: Vec<(String, usize)>,
         turn: usize,
     },
+    YourTurn,
+    NotYourTurn,
     Board(Board), // Used to send the initial board
     Played(Piece, i32, i32), // Incremental updates
     Draw(Piece),
