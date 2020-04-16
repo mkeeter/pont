@@ -242,7 +242,6 @@ impl Handle {
         p.append_child(&b)?;
         let room_input = doc.create_element("input")?
             .dyn_into::<HtmlInputElement>()?;
-        room_input.set_attribute("placeholder", "Create new room")?;
         room_input.set_id("room_input");
         room_input.set_pattern("^[a-z]+ [a-z]+ [a-z]+$");
         p.append_child(&room_input)?;
@@ -250,22 +249,30 @@ impl Handle {
         set_event_cb(&room_input, "invalid", move |_: Event| {
             room_input_.set_custom_validity("three lowercase words");
         });
-        let room_input_ = room_input.clone();
-        set_event_cb(&room_input, "input", move |_: Event| {
-            room_input_.set_custom_validity("");
-        });
         form.append_child(&p)?;
 
         let p = doc.create_element("p")?;
         let button = doc.create_element("button")?
             .dyn_into::<HtmlButtonElement>()?;
-        button.set_text_content(Some("Play!"));
+        button.set_text_content(Some("Create new room"));
         button.set_id("play_button");
         button.set_type("submit");
         p.append_child(&button)?;
         form.append_child(&p)?;
 
         div.append_child(&form)?;
+
+        let room_input_ = room_input.clone();
+        let button_ = button.clone();
+        set_event_cb(&room_input, "input", move |_: Event| {
+            let v = room_input_.value();
+            if v.is_empty() {
+                button_.set_text_content(Some("Create new room"));
+            } else {
+                button_.set_text_content(Some("Join existing room"));
+            }
+            room_input_.set_custom_validity("");
+        });
 
         let send = self.sender();
         set_event_cb(&form, "submit", move |e: Event| {
