@@ -96,13 +96,26 @@ fn clear_div(div: &HtmlElement) -> Result<(), JsValue> {
     Ok(())
 }
 
-fn append_chat(msg: &str) -> Result<(), JsValue> {
+fn append_chat(name: &str, msg: &str) -> Result<(), JsValue> {
     let doc = document();
     if let Some(div) = doc.get_element_by_id("chat") {
         let p = doc.create_element("p")?;
-        p.set_text_content(Some(msg));
         p.set_class_name("msg");
+
+        let b = doc.create_element("b")?;
+        b.set_text_content(Some(name));
+        p.append_child(&b)?;
+
+        let s = doc.create_element("b")?;
+        s.set_text_content(Some(":"));
+        p.append_child(&s)?;
+
+        let s = doc.create_element("span")?;
+        s.set_text_content(Some(msg));
+        p.append_child(&s)?;
+
         div.append_child(&p)?;
+        p.scroll_into_view();
     }
     Ok(())
 }
@@ -131,44 +144,54 @@ impl Handle {
         }
     }
 
+    fn on_chat(&mut self, from: String, message: String) -> Result<(), JsValue> {
+        append_chat(&from, &message)
+    }
+
     fn on_joined_room(&mut self, name: String, room: String) -> Result<(), JsValue> {
         let (doc, div) = doc_div();
         clear_div(&div)?;
 
         let p = doc.create_element("p")?;
-        p.set_text_content(Some(&format!("Room name: {}", room)));
-        div.append_child(&p)?;
-
-        let p = doc.create_element("p")?;
-        p.set_text_content(Some(&format!("Your name: {}", name)));
+        let b = doc.create_element("b")?;
+        b.set_text_content(Some("Room: "));
+        let s = doc.create_element("span")?;
+        s.set_text_content(Some(&room));
+        p.append_child(&b)?;
+        p.append_child(&s)?;
         div.append_child(&p)?;
 
         let chat_div = doc.create_element("div")?;
         chat_div.set_id("chat");
         div.append_child(&chat_div)?;
 
-        for i in 0..100 {
-            append_chat(&format!("hi {}", i))?;
-        }
-
+        // Name + text input
+        let p = doc.create_element("p")?;
         let chat_input = doc.create_element("input")?
             .dyn_into::<HtmlInputElement>()?;
         chat_input.set_id("chat_input");
         chat_input.set_attribute("placeholder", "Send message...")?;
 
-        let sender = self.sender();
-        let p = doc.create_element("p")?;
+        let b = doc.create_element("b")?;
+        b.set_text_content(Some(&name));
+        p.append_child(&b)?;
+        let b = doc.create_element("b")?;
+        b.set_text_content(Some(":"));
+        p.append_child(&b)?;
+
         p.append_child(&chat_input)?;
         div.append_child(&p)?;
 
         // If Enter is pressed while focus is in the chat box,
         // send a chat message to the server.
-        set_event_cb(&chat_input.clone(), "keyup", move |e: KeyboardEvent| {
+        let chat_input_ = chat_input.clone();
+        let sender = self.sender();
+        set_event_cb(&chat_input, "keyup", move |e: KeyboardEvent| {
             if e.key_code() == 13 { // Enter key
                 e.prevent_default();
-                let i = chat_input.value();
+                let i = chat_input_.value();
                 if !i.is_empty() {
-                    chat_input.set_value("");
+                    chat_input_.set_value("");
                     sender(ClientMessage::Chat(i));
                 }
             }
@@ -184,6 +207,7 @@ impl Handle {
         match msg {
             UnknownRoom(name) => self.on_unknown_room(name),
             JoinedRoom{name, room} => self.on_joined_room(name, room),
+            Chat{from, message} => self.on_chat(from, message),
             _ => Ok(()),
         }
     }
@@ -198,60 +222,53 @@ impl Handle {
 
         // When any of the text fields change, check to see whether
         // the "Join" button should be enabled
+        let form = doc.create_element("form")?;
+
         let p = doc.create_element("p")?;
-        p.set_text_content(Some("Name: "));
+        let b = doc.create_element("b")?;
+        b.set_text_content(Some("Name:"));
+        p.append_child(&b)?;
         let name_input = doc.create_element("input")?
             .dyn_into::<HtmlInputElement>()?;
         name_input.set_id("name_input");
         name_input.set_attribute("placeholder", "John Smith")?;
+        name_input.set_required(true);
         p.append_child(&name_input)?;
-        div.append_child(&p)?;
+        form.append_child(&p)?;
 
         let p = doc.create_element("p")?;
-        p.set_text_content(Some("Room: "));
+        let b = doc.create_element("b")?;
+        b.set_text_content(Some("Room:"));
+        p.append_child(&b)?;
         let room_input = doc.create_element("input")?
             .dyn_into::<HtmlInputElement>()?;
         room_input.set_attribute("placeholder", "Create new room")?;
         room_input.set_id("room_input");
+        room_input.set_pattern("^[a-z]+ [a-z]+ [a-z]+$");
         p.append_child(&room_input)?;
-        div.append_child(&p)?;
+        let room_input_ = room_input.clone();
+        set_event_cb(&room_input, "invalid", move |_: Event| {
+            room_input_.set_custom_validity("three lowercase words");
+        });
+        let room_input_ = room_input.clone();
+        set_event_cb(&room_input, "input", move |_: Event| {
+            room_input_.set_custom_validity("");
+        });
+        form.append_child(&p)?;
 
         let p = doc.create_element("p")?;
         let button = doc.create_element("button")?
             .dyn_into::<HtmlButtonElement>()?;
         button.set_text_content(Some("Play!"));
         button.set_id("play_button");
+        button.set_type("submit");
         p.append_child(&button)?;
-        button.set_disabled(true);
-        div.append_child(&p)?;
+        form.append_child(&p)?;
 
-        let validate_join_inputs = {
-            let button = button.clone();
-            let name_input = name_input.clone();
-            let room_input = room_input.clone();
-            // Whenever either text field changes, call this validation
-            // function and enable / disable the Join button
-            move |_: Event| {
-                button.set_disabled({
-                    let name = name_input.value();
-                    let room = room_input.value();
-                    if name.is_empty() {
-                        true
-                    } else if room.is_empty() {
-                        false
-                    } else {
-                        room.trim().chars().filter(|c| *c == ' ').count() != 2
-                    }
-                });
-            }
-        };
-        set_event_cb(&name_input, "input", validate_join_inputs.clone());
-        set_event_cb(&room_input, "input", validate_join_inputs);
-
-        // todo: use https://stackoverflow.com/a/24245592 to make Enter work
+        div.append_child(&form)?;
 
         let send = self.sender();
-        set_event_cb(&button.clone(), "click", move |_: Event| {
+        set_event_cb(&form, "submit", move |e: Event| {
             button.set_disabled(true);
             let name = name_input.value();
             let room = room_input.value();
@@ -261,6 +278,7 @@ impl Handle {
                 ClientMessage::JoinRoom(name, room)
             };
             send(msg);
+            e.prevent_default();
         });
 
         Ok(())

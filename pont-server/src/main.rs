@@ -78,6 +78,16 @@ impl Room {
                              self.name, addr);
                 }
             },
+            ClientMessage::Chat(c) => {
+                let name = self.players.get(&addr)
+                    .map_or("unknown", |p| &p.name);
+                for p in self.players.values() {
+                    p.ws.unbounded_send(ServerMessage::Chat{
+                            from: name.to_string(),
+                            message: c.clone()})
+                        .expect("Failed to write chat message");
+                }
+            }
             _ => (),
         }
     }

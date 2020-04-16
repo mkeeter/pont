@@ -1,6 +1,17 @@
 body {
     font-family: Inconsolata, "Courier New", monospace;
+    font-size: 16px;
     margin-left: 20px;
+    margin-right: 20px;
+    background-color: #eee8d5;
+}
+input {
+    font-family: Inconsolata, "Courier New", monospace;
+    font-size: 16px;
+    background-color: #fdf6e3;
+    border:1px solid #93a1a1;
+    padding: 10px;
+    margin-left: 10px;
 }
 div#error {
     color: #F92672;
@@ -12,8 +23,28 @@ span#err_span {
 div#chat {
     height: 100px;
     overflow-y: auto;
+    border:1px solid #93a1a1;
+    background-color: #fdf6e3;
+    padding: 10px;
 }
+#chat span {
+    margin-left: 5px;
+}
+
 p.msg {
     margin-top: 2px;
     margin-bottom: 2px;
+}
+
+form button {
+    padding: 10px 20px;
+    font-family: Inconsolata, "Courier New", monospace;
+    font-size: 16px;
+    background-color: #fdf6e3;
+    border:1px solid #93a1a1;
+    border-radius: 15px
+}
+
+form:invalid button {
+    display: none;
 }
