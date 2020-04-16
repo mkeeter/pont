@@ -7,6 +7,7 @@ pub enum ClientMessage {
     JoinRoom(String, String),
     Chat(String),
     Play(Piece, i32, i32),
+    Swap(Vec<Piece>),
     Disconnected,
 }
 
@@ -28,6 +29,8 @@ pub enum ServerMessage {
     },
     Board(Board), // Used to send the initial board
     Played(Piece, i32, i32), // Incremental updates
+    Draw(Piece),
+    Swap(Vec<Piece>),
     InvalidMove(String),
 }
 
