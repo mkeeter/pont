@@ -7,10 +7,13 @@ edition = "2018"
 [dependencies]
 tokio-tungstenite = "*"
 tungstenite = "*"
-tokio = { version = "*", features = ["full"] }
 futures = "0.3.4"
 pont-common = { path = "../pont-common" }
 serde = "^1.0.59"
 serde_derive = "^1.0.59"
 serde_json = "*"
 rand = "^0.7"
+
+[dependencies.tokio]
+version = "*"
+features = ["macros", "net", "rt-threaded"]

@@ -105,6 +105,20 @@ impl Room {
             ClientMessage::CreateRoom(_) | ClientMessage::JoinRoom(_, _) => {
                 println!("Invalid client message {:?}", msg);
             },
+            ClientMessage::Play(pieces) => {
+                if let Some(p) = self.players.get(&addr) {
+                    println!("[{}] {} played {:?}", self.name, p.name, pieces);
+                } else {
+                    println!("[{}] Invalid player {}", self.name, addr);
+                }
+            }
+            ClientMessage::Swap(pieces) => {
+                if let Some(p) = self.players.get(&addr) {
+                    println!("[{}] {} swapped {:?}", self.name, p.name, pieces);
+                } else {
+                    println!("[{}] Invalid player {}", self.name, addr);
+                }
+            }
         }
     }
 }
