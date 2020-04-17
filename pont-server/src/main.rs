@@ -6,6 +6,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 use rand::Rng;
+use log::{error, info, trace, warn};
 
 use futures::future;
 use futures::stream::{StreamExt, SplitSink};
@@ -76,11 +77,11 @@ impl Room {
     }
 
     fn on_message(&mut self, addr: SocketAddr, msg: ClientMessage) {
-        println!("[{}] Got message {:?} from {}", self.name, msg, addr);
+        trace!("[{}] Got message {:?} from {}", self.name, msg, addr);
         match msg {
             ClientMessage::Disconnected => {
                 if let Some(p) = self.players.remove(&addr) {
-                    println!("[{}] Removed disconnected player '{}'",
+                    info!("[{}] Removed disconnected player '{}'",
                              self.name, p.name);
                     for p in self.players.values() {
                         p.ws.unbounded_send(ServerMessage::Information(
@@ -88,7 +89,7 @@ impl Room {
                             .expect("Failed to write chat message");
                     }
                 } else {
-                    println!("[{}] Tried to remove non-existent player at {}",
+                    error!("[{}] Tried to remove non-existent player at {}",
                              self.name, addr);
                 }
             },
@@ -103,20 +104,20 @@ impl Room {
                 }
             },
             ClientMessage::CreateRoom(_) | ClientMessage::JoinRoom(_, _) => {
-                println!("Invalid client message {:?}", msg);
+                warn!("Invalid client message {:?}", msg);
             },
             ClientMessage::Play(pieces) => {
                 if let Some(p) = self.players.get(&addr) {
-                    println!("[{}] {} played {:?}", self.name, p.name, pieces);
+                    trace!("[{}] {} played {:?}", self.name, p.name, pieces);
                 } else {
-                    println!("[{}] Invalid player {}", self.name, addr);
+                    trace!("[{}] Invalid player {}", self.name, addr);
                 }
             }
             ClientMessage::Swap(pieces) => {
                 if let Some(p) = self.players.get(&addr) {
-                    println!("[{}] {} swapped {:?}", self.name, p.name, pieces);
+                    trace!("[{}] {} swapped {:?}", self.name, p.name, pieces);
                 } else {
-                    println!("[{}] Invalid player {}", self.name, addr);
+                    trace!("[{}] Invalid player {}", self.name, addr);
                 }
             }
         }
@@ -136,7 +137,7 @@ async fn run_room(room_name: String,
         players: HashMap::new(),
     };
 
-    println!("[{}] Started room!", room.name);
+    info!("[{}] Started room!", room.name);
 
     enum Either {
         Left(PlayerJoined),
@@ -152,7 +153,7 @@ async fn run_room(room_name: String,
         if let Some(m) = inputs.next().await {
             match m {
                 Left(p) => {
-                    println!("[{}] Player '{}' joined", room.name, p.name);
+                    info!("[{}] Player '{}' joined", room.name, p.name);
 
                     let (incoming, outgoing) = p.ws.split();
                     room.add_player(p.addr, p.name, incoming);
@@ -181,7 +182,7 @@ async fn run_room(room_name: String,
         }
     }
 
-    println!("[{}] All players left, closing room.", room.name);
+    info!("[{}] All players left, closing room.", room.name);
 }
 
 async fn handle_connection(rooms: RoomList,
@@ -189,12 +190,12 @@ async fn handle_connection(rooms: RoomList,
                            raw_stream: TcpStream,
                            addr: SocketAddr)
 {
-    println!("[{}] Incoming TCP connection", addr);
+    info!("[{}] Incoming TCP connection", addr);
 
     let mut ws_stream = tokio_tungstenite::accept_async(raw_stream)
         .await
         .expect("Error during the websocket handshake occurred");
-    println!("[{}] WebSocket connection established", addr);
+    info!("[{}] WebSocket connection established", addr);
 
     // Clients are only allowed to send text messages at this stage.
     // If they do anything else, then just disconnect.
@@ -242,16 +243,17 @@ async fn handle_connection(rooms: RoomList,
                     .expect("Could not send message");
             }
             msg => {
-                println!("[{}] Got unexpected message {:?}", addr, msg);
+                warn!("[{}] Got unexpected message {:?}", addr, msg);
                 break;
             }
         }
     }
-    println!("[{}] Dropping connection", addr);
+    info!("[{}] Dropping connection", addr);
 }
 
 #[tokio::main]
 async fn main() -> Result<(), IoError> {
+    env_logger::init();
     let addr = env::args()
         .nth(1)
         .unwrap_or_else(|| "0.0.0.0:8080".to_string());
@@ -271,7 +273,7 @@ async fn main() -> Result<(), IoError> {
     // Create the event loop and TCP listener we'll accept connections on.
     let mut listener = TcpListener::bind(&addr).await
         .expect("Failed to bind");
-    println!("Listening on: {}", addr);
+    info!("Listening on: {}", addr);
 
     // Each connection is initially handled by its own task;
     // once it joins a room, it will be handled by a room-specific task
