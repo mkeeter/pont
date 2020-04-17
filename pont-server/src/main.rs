@@ -7,6 +7,7 @@ use std::{
 };
 use rand::Rng;
 use log::{error, info, trace, warn};
+use env_logger::Env;
 
 use futures::future;
 use futures::stream::{StreamExt, SplitSink};
@@ -253,7 +254,8 @@ async fn handle_connection(rooms: RoomList,
 
 #[tokio::main]
 async fn main() -> Result<(), IoError> {
-    env_logger::init();
+    env_logger::from_env(Env::default().default_filter_or("pont_server=TRACE"))
+        .init();
     let addr = env::args()
         .nth(1)
         .unwrap_or_else(|| "0.0.0.0:8080".to_string());
