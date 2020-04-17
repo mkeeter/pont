@@ -6,7 +6,7 @@ pub enum ClientMessage {
     CreateRoom(String),
     JoinRoom(String, String),
     Chat(String),
-    Play(Piece, i32, i32),
+    Play(Vec<(Piece, i32, i32)>),
     Swap(Vec<Piece>),
     Disconnected,
 }
@@ -30,9 +30,7 @@ pub enum ServerMessage {
     YourTurn,
     NotYourTurn,
     Board(Board), // Used to send the initial board
-    Played(Piece, i32, i32), // Incremental updates
-    Draw(Piece),
-    Swap(Vec<Piece>),
+    Draw(Vec<Piece>),
     InvalidMove(String),
 }
 
@@ -59,4 +57,4 @@ pub enum Color {
 #[derive(Copy, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Piece(Shape, Color);
 
-type Board = HashMap<(i32, i32), Piece>;
+pub type Board = HashMap<(i32, i32), Piece>;

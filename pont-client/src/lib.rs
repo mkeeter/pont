@@ -220,6 +220,12 @@ impl Handle {
             JoinedRoom{name, room} => self.on_joined_room(name, room),
             Chat{from, message} => self.on_chat(from, message),
             Information(message) => self.on_information(message),
+            Players{ players, turn } => self.on_players(players, turn),
+            YourTurn => self.on_my_turn(),
+            NotYourTurn => self.on_not_my_turn(),
+            Board(b) => self.on_board(b),
+            Draw(pieces) => self.on_draw(pieces),
+            InvalidMove(s) => self.on_invalid_move(s),
         }
     }
 
@@ -299,6 +305,28 @@ impl Handle {
             e.prevent_default();
         });
 
+        Ok(())
+    }
+
+    fn on_players(&mut self, players: Vec<(String, usize)>, turn: usize)
+        -> Result<(), JsValue>
+    {
+        Ok(())
+    }
+
+    fn on_my_turn(&mut self) -> Result<(), JsValue> {
+        Ok(())
+    }
+    fn on_not_my_turn(&mut self) -> Result<(), JsValue> {
+        Ok(())
+    }
+    fn on_board(&mut self, board: pont_common::Board) -> Result<(), JsValue> {
+        Ok(())
+    }
+    fn on_draw(&mut self, pieces: Vec<pont_common::Piece>) -> Result<(), JsValue> {
+        Ok(())
+    }
+    fn on_invalid_move(&mut self, msg: String) -> Result<(), JsValue> {
         Ok(())
     }
 }
