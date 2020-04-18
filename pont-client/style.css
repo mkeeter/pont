@@ -13,6 +13,17 @@ input {
     padding: 10px;
     margin-left: 10px;
 }
+div#chat_input {
+    display:flex;
+    flex-direction: row;
+    margin-top: 10px;
+}
+input#chat_input {
+    flex: 1;
+}
+div#chat_name {
+    padding-top: 10px;
+}
 div#error {
     color: #F92672;
 }
@@ -26,6 +37,10 @@ div#chat {
     border:1px solid #93a1a1;
     background-color: #fdf6e3;
     padding: 10px;
+}
+div#chat_col {
+    display: flex;
+    flex-direction: column;
 }
 #chat span {
     margin-left: 5px;
@@ -55,6 +70,13 @@ div#game {
     column-gap: 20px;
 }
 
+table#scores {
+    width: 100%;
+}
+th {
+    border-bottom: 1px solid #000;
+}
+
 svg#game {
     width: calc(100% - 2px); /* accounts for border */
     margin-bottom: 20px;
@@ -65,6 +87,15 @@ svg#game {
 @media only screen and (min-width: 600px) {
     div#game {
         grid-template-columns: 2fr 1fr;
+    }
+    div#chat_col{
+        grid-column: 1 / span 2;
+    }
+}
+
+@media only screen and (min-width: 1000px) {
+    div#game {
+        grid-template-columns: 2fr 1fr 1fr;
     }
     div#chat {
         height: calc(100% * 0.6);

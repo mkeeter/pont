@@ -208,6 +208,7 @@ impl PlayingState {
         let game_div = doc.create_element("div")?
             .dyn_into::<HtmlElement>()?;
         game_div.set_id("game");
+        main_div.append_child(&game_div)?;
 
         // Add an SVG
         let svg = doc.create_element_ns(Some("http://www.w3.org/2000/svg"), "svg")?;
@@ -224,32 +225,52 @@ impl PlayingState {
         circle.set_attribute("fill", "red")?;
         svg.append_child(&circle)?;
         game_div.append_child(&svg)?;
-        main_div.append_child(&game_div)?;
+
+        let score_col = doc.create_element("div")?
+            .dyn_into::<HtmlElement>()?;
+        let score_table = doc.create_element("table")?;
+        score_table.set_id("scores");
+        let tr = doc.create_element("tr")?;
+        let th = doc.create_element("th")?;
+        th.set_text_content(Some("Player"));
+        tr.append_child(&th)?;
+        let th = doc.create_element("th")?;
+        th.set_text_content(Some("Score"));
+        tr.append_child(&th)?;
+        score_table.append_child(&tr)?;
+        score_col.append_child(&score_table)?;
+        game_div.append_child(&score_col)?;
 
         // Create the column for chatting
         let chat_col = doc.create_element("div")?
             .dyn_into::<HtmlElement>()?;
+        chat_col.set_id("chat_col");
         let chat_div = doc.create_element("div")?
             .dyn_into::<HtmlElement>()?;
         chat_div.set_id("chat");
         chat_col.append_child(&chat_div)?;
 
         // Name + text input
-        let p = doc.create_element("p")?;
+        let chat_input_div = doc.create_element("div")?;
+        chat_input_div.set_id("chat_input");
+
+        let chat_name_div = doc.create_element("p")?;
+        chat_name_div.set_id("chat_name");
+        let b = doc.create_element("b")?;
+        b.set_text_content(Some(name));
+        chat_name_div.append_child(&b)?;
+        let b = doc.create_element("b")?;
+        b.set_text_content(Some(":"));
+        chat_name_div.append_child(&b)?;
+        chat_input_div.append_child(&chat_name_div)?;
+
         let chat_input = doc.create_element("input")?
             .dyn_into::<HtmlInputElement>()?;
         chat_input.set_id("chat_input");
         chat_input.set_attribute("placeholder", "Send message...")?;
+        chat_input_div.append_child(&chat_input)?;
 
-        let b = doc.create_element("b")?;
-        b.set_text_content(Some(name));
-        p.append_child(&b)?;
-        let b = doc.create_element("b")?;
-        b.set_text_content(Some(":"));
-        p.append_child(&b)?;
-
-        p.append_child(&chat_input)?;
-        chat_col.append_child(&p)?;
+        chat_col.append_child(&chat_input_div)?;
         game_div.append_child(&chat_col)?;
 
         // If Enter is pressed while focus is in the chat box,
@@ -388,6 +409,9 @@ impl Handle {
         // Remove the "Connecting..." message
         self.clear_main_div()?;
         self.state = CreateOrJoinState::new(&self.doc, &self.main_div)?;
+
+        // Insta-join a room
+        self.send(ClientMessage::CreateRoom("Matt".to_string()));
         Ok(())
     }
 
