@@ -25,16 +25,61 @@ macro_rules! console_log {
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Eq, PartialEq)]
+struct PlayingState {
+    chat_input: HtmlInputElement,
+}
+
+#[derive(Eq, PartialEq)]
 enum State {
     Connecting,
     CreateOrJoin,
-    InRoom,
+    Playing(PlayingState),
 }
 
 struct Handle {
+    doc: Document,
+    main: HtmlElement,
     ws: WebSocket,
     state: State,
 }
+unsafe impl Send for Handle {}
+
+lazy_static::lazy_static! {
+    static ref HANDLE: Arc<Mutex<Handle>> = {
+        let doc = document();
+        let body = doc.body().expect("document should have a body");
+
+        // Manufacture the element we're gonna append
+        let val = doc.create_element("p")
+            .expect("Could not create <p>");
+        val.set_text_content(Some("Connecting..."));
+
+        let div = doc.create_element("div")
+            .expect("Could not create main <div>")
+            .dyn_into::<HtmlElement>()
+            .expect("Failed to convert into `HtmlElement`");
+        div.set_id("main");
+        div.append_child(&val)
+            .expect("Could not append child");
+
+        body.append_child(&div)
+            .expect("Could not append child");
+
+        let hostname = doc.location().unwrap().hostname()
+            .expect("Could not find hostname");
+        let ws = WebSocket::new(&format!("ws://{}:8080", hostname))
+            .expect("Could not create websocket");
+
+        Arc::new(Mutex::new(Handle {
+            doc,
+            main: div,
+            ws: ws,
+            state: State::Connecting,
+        }))
+    };
+}
+
+////////////////////////////////////////////////////////////////////////////////
 
 fn document() -> Document {
     web_sys::window()
@@ -108,6 +153,13 @@ impl Handle {
             .dyn_into::<HtmlButtonElement>()?
             .set_disabled(false);
         Ok(())
+    }
+
+    fn send(&self, msg: ClientMessage) {
+        let encoded = serde_json::to_string(&msg)
+            .expect("Failed to encode");
+        self.ws.send_with_str(&encoded)
+            .expect("Could not send message");
     }
 
     fn sender(&self) -> impl Fn(ClientMessage) {
@@ -195,21 +247,27 @@ impl Handle {
 
         // If Enter is pressed while focus is in the chat box,
         // send a chat message to the server.
-        let chat_input_ = chat_input.clone();
-        let sender = self.sender();
         set_event_cb(&chat_input, "keyup", move |e: KeyboardEvent| {
             if e.key_code() == 13 { // Enter key
                 e.prevent_default();
-                let i = chat_input_.value();
-                if !i.is_empty() {
-                    chat_input_.set_value("");
-                    sender(ClientMessage::Chat(i));
-                }
+                HANDLE.lock().unwrap().send_chat();
             }
         });
 
-        self.state = State::InRoom;
+        self.state = State::Playing(PlayingState {
+            chat_input
+        });
         Ok(())
+    }
+
+    fn send_chat(&self) {
+        if let State::Playing(p) = &self.state {
+            let i = p.chat_input.value();
+            if !i.is_empty() {
+                p.chat_input.set_value("");
+                self.send(ClientMessage::Chat(i));
+            }
+        }
     }
 
     fn on_message(&mut self, msg: ServerMessage) -> Result<(), JsValue> {
@@ -338,42 +396,20 @@ impl Handle {
 pub fn main() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
 
-    let doc = document();
-    let body = doc.body().expect("document should have a body");
-
-    // Manufacture the element we're gonna append
-    let val = doc.create_element("p")?;
-    val.set_text_content(Some("Connecting..."));
-
-    let div = doc.create_element("div")?;
-    div.set_id("main");
-    div.append_child(&val)?;
-
-    body.append_child(&div)?;
-
-    let hostname = doc.location().unwrap().hostname()?;
-    let ws = WebSocket::new(&format!("ws://{}:8080", hostname))?;
-
-    let handle = Arc::new(Mutex::new(Handle {
-        ws: ws.clone(),
-        state: State::Connecting,
-    }));
-
-    let handle_ = handle.clone();
-    set_event_cb(&ws, "open", move |_: JsValue| {
-        let mut state = handle_.lock().unwrap();
+    set_event_cb(&HANDLE.lock().unwrap().ws, "open", move |_: JsValue| {
+        let mut state = HANDLE.lock().unwrap();
         state.on_connected().expect("Failed to connect");
     });
 
-    set_event_cb(&ws, "message", move |e: MessageEvent| {
+    set_event_cb(&HANDLE.lock().unwrap().ws, "message", move |e: MessageEvent| {
         let msg = serde_json::from_str(&e.data().as_string().unwrap())
             .expect("Failed to decode message");
-        let mut state = handle.lock().unwrap();
+        let mut state = HANDLE.lock().unwrap();
         state.on_message(msg)
             .expect("Failed to handle message");
     });
 
-    set_event_cb(&ws, "close", move |_: Event| {
+    set_event_cb(&HANDLE.lock().unwrap().ws, "close", move |_: Event| {
         console_log!("Socket closed");
     });
 

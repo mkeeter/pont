@@ -13,6 +13,7 @@ serde_json = "*"
 wasm-bindgen = "^0.2"
 js-sys = "*"
 console_error_panic_hook = "*"
+lazy_static = "*"
 
 [dependencies.web-sys]
 version = "*"

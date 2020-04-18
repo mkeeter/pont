@@ -58,6 +58,7 @@ version = "0.1.0"
 dependencies = [
  "console_error_panic_hook",
  "js-sys",
+ "lazy_static",
  "pont-common",
  "serde_json",
  "wasm-bindgen",
