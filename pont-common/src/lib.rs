@@ -18,8 +18,9 @@ pub enum ClientMessage {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum ServerMessage {
     JoinedRoom {
-        name: String,
-        room: String,
+        room_name: String,
+        players: Vec<(String, u32, bool)>,
+        active_player: usize,
     },
     UnknownRoom(String),
     Chat {
@@ -27,7 +28,7 @@ pub enum ServerMessage {
         message: String,
     },
     Information(String),
-    NewPlayer(String, u32),
+    NewPlayer(String),
     PlayerDisconnected(usize),
 
     /*

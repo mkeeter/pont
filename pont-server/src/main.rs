@@ -50,6 +50,7 @@ struct Room {
     started: bool,
     connections: HashMap<SocketAddr, usize>,
     players: Vec<Player>,
+    active_player: usize,
 }
 
 impl Room {
@@ -78,35 +79,33 @@ impl Room {
             .map(|m| Ok(m))
             .forward(ws));
 
-        // Tell the player that they have joined the room
-        ws_tx.unbounded_send(ServerMessage::JoinedRoom{
-                name: player_name.clone(),
-                room: self.name.clone() })
-            .expect("Could not send JoinedRoom");
-        // ...and send them a personalized welcome chat message
-        ws_tx.unbounded_send(ServerMessage::Information(
-                format!("Welcome, {}!", player_name.clone())))
-            .expect("Could not send JoinedRoom");
-
         // Tell all other players that someone has joined
         self.broadcast(ServerMessage::Information(
                 format!("{} joined the room", player_name.clone())));
         // Add the new player to the scoreboard
-        self.broadcast(ServerMessage::NewPlayer(player_name.clone(), 0));
+        self.broadcast(ServerMessage::NewPlayer(player_name.clone()));
 
         // Add the new player to the active list of connections and players
         self.connections.insert(addr, self.players.len());
         self.players.push(Player {
-            name: player_name,
+            name: player_name.clone(),
             score: 0,
             ws: Some(ws_tx.clone()) });
+
+        // Tell the player that they have joined the room
+        ws_tx.unbounded_send(ServerMessage::JoinedRoom{
+                room_name: self.name.clone(),
+                players: self.players.iter()
+                    .map(|p| (p.name.clone(), p.score, p.ws.is_some()))
+                    .collect(),
+                active_player: self.active_player})
+            .expect("Could not send JoinedRoom");
+        // ...and send them a personalized welcome chat message
+        ws_tx.unbounded_send(ServerMessage::Information(
+                format!("Welcome, {}!", player_name)))
+            .expect("Could not send JoinedRoom");
+
         self.started = true;
-        for p in self.players.iter() {
-            ws_tx.unbounded_send(ServerMessage::NewPlayer(
-                    p.name.clone(),
-                    p.score))
-                .expect("Could not send initial scores");
-        }
     }
 
     fn on_message(&mut self, addr: SocketAddr, msg: ClientMessage) {
@@ -169,6 +168,7 @@ async fn run_room(room_name: String,
         started: false,
         connections: HashMap::new(),
         players: Vec::new(),
+        active_player: 0,
     };
 
     info!("[{}] Started room!", room.name);

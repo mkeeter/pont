@@ -29,6 +29,8 @@ struct PlayingState {
     chat_div: HtmlElement,
     chat_input: HtmlInputElement,
     score_table: HtmlElement,
+    player_index: usize,
+    active_player: usize,
 }
 
 #[derive(Eq, PartialEq)]
@@ -191,15 +193,20 @@ impl CreateOrJoinState {
 ////////////////////////////////////////////////////////////////////////////////
 
 impl PlayingState {
-    fn new(doc: &Document, main_div: &HtmlElement, name: &str, room: &str)
+    fn new(doc: &Document, main_div: &HtmlElement,
+           room_name: &str,
+           players: &[(String, u32, bool)],
+           active_player: usize)
         -> Result<State, JsValue>
     {
+        let player_index = players.len() - 1;
+
         // The title lists the room name
         let p = doc.create_element("p")?;
         let b = doc.create_element("b")?;
         b.set_text_content(Some("Room: "));
         let s = doc.create_element("span")?;
-        s.set_text_content(Some(room));
+        s.set_text_content(Some(room_name));
         p.append_child(&b)?;
         p.append_child(&s)?;
         main_div.append_child(&p)?;
@@ -239,6 +246,19 @@ impl PlayingState {
         th.set_text_content(Some("Score"));
         tr.append_child(&th)?;
         score_table.append_child(&tr)?;
+        for (name, score, connected) in players.iter() {
+            let tr = doc.create_element("tr")?;
+            let td = doc.create_element("td")?;
+            td.set_text_content(Some(name));
+            tr.append_child(&td)?;
+            let td = doc.create_element("td")?;
+            td.set_text_content(Some(&format!("{}", score)));
+            tr.append_child(&td)?;
+            if !connected {
+                tr.set_class_name("disconnected");
+            }
+            score_table.append_child(&tr)?;
+        }
         score_col.append_child(&score_table)?;
         game_div.append_child(&score_col)?;
 
@@ -258,7 +278,7 @@ impl PlayingState {
         let chat_name_div = doc.create_element("p")?;
         chat_name_div.set_id("chat_name");
         let b = doc.create_element("b")?;
-        b.set_text_content(Some(name));
+        b.set_text_content(Some(&players[player_index].0));
         chat_name_div.append_child(&b)?;
         let b = doc.create_element("b")?;
         b.set_text_content(Some(":"));
@@ -287,6 +307,8 @@ impl PlayingState {
             chat_input,
             chat_div,
             score_table,
+            player_index,
+            active_player,
         }))
     }
 
@@ -371,12 +393,16 @@ impl Handle {
         Ok(())
     }
 
-    fn on_joined_room(&mut self, name: String, room: String)
+    fn on_joined_room(&mut self, room_name: String,
+                      players: Vec<(String, u32, bool)>,
+                      active_player: usize)
         -> Result<(), JsValue>
     {
         self.clear_main_div()?;
         self.state = PlayingState::new(
-            &self.doc, &self.main_div, &name, &room)?;
+            &self.doc, &self.main_div,
+            &room_name,
+            &players, active_player)?;
         Ok(())
     }
 
@@ -395,10 +421,11 @@ impl Handle {
         console_log!("Got message {:?}", msg);
         match msg {
             UnknownRoom(name) => self.on_unknown_room(name),
-            JoinedRoom{name, room} => self.on_joined_room(name, room),
+            JoinedRoom{room_name, players, active_player} =>
+                self.on_joined_room(room_name, players, active_player),
             Chat{from, message} => self.on_chat(from, message),
             Information(message) => self.on_information(message),
-            NewPlayer(name, score) => self.on_new_player(name, score),
+            NewPlayer(name) => self.on_new_player(name),
             PlayerDisconnected(index) => self.on_player_disconnected(index),
             /*
             Players{ players, turn } => self.on_players(players, turn),
@@ -414,7 +441,7 @@ impl Handle {
     fn on_player_disconnected(&mut self, index: usize) -> Result<(), JsValue> {
         if let State::Playing(state) = &self.state {
             let c = state.score_table.child_nodes()
-                .item(index as u32)
+                .item((index + 1) as u32)
                 .unwrap()
                 .dyn_into::<HtmlElement>()?;
             c.set_class_name("disconnected");
@@ -422,7 +449,7 @@ impl Handle {
         Ok(())
     }
 
-    fn on_new_player(&mut self, name: String, score: u32) -> Result<(), JsValue> {
+    fn on_new_player(&mut self, name: String) -> Result<(), JsValue> {
         // Append a player to the bottom of the scores list
         if let State::Playing(state) = &self.state {
             let tr = self.doc.create_element("tr")?;
@@ -430,7 +457,7 @@ impl Handle {
             td.set_text_content(Some(&name));
             tr.append_child(&td)?;
             let td = self.doc.create_element("td")?;
-            td.set_text_content(Some(&format!("{}", score)));
+            td.set_text_content(Some("0"));
             tr.append_child(&td)?;
             state.score_table.append_child(&tr)?;
         }
@@ -477,12 +504,6 @@ impl Handle {
             };
             self.send(msg);
         }
-    }
-
-    fn on_players(&mut self, players: Vec<(String, usize)>, turn: usize)
-        -> Result<(), JsValue>
-    {
-        Ok(())
     }
 
     fn on_my_turn(&mut self) -> Result<(), JsValue> {
