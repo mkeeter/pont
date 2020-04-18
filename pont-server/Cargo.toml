@@ -15,6 +15,7 @@ serde_json = "*"
 rand = "^0.7"
 env_logger = "0.7.1"
 log = "*"
+lazy_static = "*"
 
 [dependencies.tokio]
 version = "*"

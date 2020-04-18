@@ -20,6 +20,15 @@ use tokio_tungstenite::WebSocketStream;
 
 use pont_common::{ClientMessage, ServerMessage};
 
+////////////////////////////////////////////////////////////////////////////////
+
+lazy_static::lazy_static! {
+    // words.txt is the EFF's random word list for passphrases
+    static ref WORD_LIST: Vec<&'static str> = include_str!("words.txt")
+        .split('\n')
+        .collect();
+}
+
 // This message is passed into a Room task when a new player joins.
 // The room task then owns the relationship with that player.
 struct PlayerJoined {
@@ -193,8 +202,26 @@ async fn run_room(room_name: String,
         .expect("Could not close room");
 }
 
+fn new_room(rooms: RoomList, tx: UnboundedSender<PlayerJoined>) -> String {
+    let mut rng = rand::thread_rng();
+    loop {
+        let room_name = format!("{} {} {}",
+            WORD_LIST[rng.gen_range(0, WORD_LIST.len())],
+            WORD_LIST[rng.gen_range(0, WORD_LIST.len())],
+            WORD_LIST[rng.gen_range(0, WORD_LIST.len())]);
+
+        use std::collections::hash_map::Entry;
+        match rooms.lock().unwrap().entry(room_name.clone()) {
+            Entry::Occupied(_) => continue,
+            Entry::Vacant(v) => {
+                v.insert(tx);
+                return room_name;
+            },
+        }
+    }
+}
+
 async fn handle_connection(rooms: RoomList,
-                           namer: impl Fn() -> String,
                            raw_stream: TcpStream,
                            addr: SocketAddr,
                            close_room: UnboundedSender<String>)
@@ -213,18 +240,19 @@ async fn handle_connection(rooms: RoomList,
             .expect("Could not decode message");
         match msg {
             ClientMessage::CreateRoom(name) => {
-                let room_name = namer();
                 let (tx, rx) = unbounded();
-                rooms.lock().unwrap().insert(room_name.clone(), tx.clone());
+
+                // Pass the player into the room's task, which will inform
+                // them that they've joined the room
+                tx.unbounded_send(PlayerJoined {addr, name, ws: ws_stream})
+                    .expect("Could not pass player to room");
+
+                // Pick a new room name and attach the queue to it
+                let room_name = new_room(rooms, tx);
 
                 // This is the task which actually handles running
                 // each room, now that we've created it.
                 tokio::spawn(run_room(room_name, rx, close_room));
-
-                // Pass the player into the room's task, which will inform
-                // then that they've joined the room
-                tx.unbounded_send(PlayerJoined {addr, name, ws: ws_stream})
-                    .expect("Could not pass player to room");
 
                 // We've passed everything to the spawned room task,
                 // so we return right away (rather than handling more
@@ -276,18 +304,6 @@ async fn main() -> Result<(), IoError> {
         .nth(1)
         .unwrap_or_else(|| "0.0.0.0:8080".to_string());
 
-    // words.txt is the EFF's random word list for passphrases
-    let words = include_str!("words.txt")
-        .split('\n')
-        .collect::<Vec<&str>>();
-    let namer = move || {
-        let mut rng = rand::thread_rng();
-        let i = rng.gen_range(0, words.len());
-        let j = rng.gen_range(0, words.len());
-        let k = rng.gen_range(0, words.len());
-        return format!("{} {} {}", words[i], words[j], words[k]);
-    };
-
     // Create the event loop and TCP listener we'll accept connections on.
     let mut listener = TcpListener::bind(&addr).await
         .expect("Failed to bind");
@@ -300,8 +316,8 @@ async fn main() -> Result<(), IoError> {
     tokio::spawn(close_rooms(rooms.clone(), rx));
 
     while let Ok((stream, addr)) = listener.accept().await {
-        tokio::spawn(handle_connection(rooms.clone(), namer.clone(),
-                                       stream, addr, tx.clone()));
+        tokio::spawn(handle_connection(rooms.clone(), stream,
+                                       addr, tx.clone()));
     }
 
     Ok(())
