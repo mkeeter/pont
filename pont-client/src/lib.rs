@@ -26,27 +26,40 @@ macro_rules! console_log {
 
 #[derive(Eq, PartialEq)]
 struct PlayingState {
+    chat_div: HtmlElement,
     chat_input: HtmlInputElement,
+}
+
+#[derive(Eq, PartialEq)]
+struct CreateOrJoinState {
+    name_input: HtmlInputElement,
+    room_input: HtmlInputElement,
+    play_button: HtmlButtonElement,
+    err_div: HtmlElement,
+    err_span: HtmlElement,
 }
 
 #[derive(Eq, PartialEq)]
 enum State {
     Connecting,
-    CreateOrJoin,
+    CreateOrJoin(CreateOrJoinState),
     Playing(PlayingState),
 }
 
 struct Handle {
     doc: Document,
-    main: HtmlElement,
+    main_div: HtmlElement,
     ws: WebSocket,
     state: State,
 }
-unsafe impl Send for Handle {}
+unsafe impl Send for Handle { /* YOLO */}
 
 lazy_static::lazy_static! {
     static ref HANDLE: Arc<Mutex<Handle>> = {
-        let doc = document();
+        let doc = web_sys::window()
+            .expect("no global `window` exists")
+            .document()
+            .expect("should have a document on window");
         let body = doc.body().expect("document should have a body");
 
         // Manufacture the element we're gonna append
@@ -54,15 +67,15 @@ lazy_static::lazy_static! {
             .expect("Could not create <p>");
         val.set_text_content(Some("Connecting..."));
 
-        let div = doc.create_element("div")
+        let main_div = doc.create_element("div")
             .expect("Could not create main <div>")
             .dyn_into::<HtmlElement>()
             .expect("Failed to convert into `HtmlElement`");
-        div.set_id("main");
-        div.append_child(&val)
+        main_div.set_id("main");
+        main_div.append_child(&val)
             .expect("Could not append child");
 
-        body.append_child(&div)
+        body.append_child(&main_div)
             .expect("Could not append child");
 
         let hostname = doc.location().unwrap().hostname()
@@ -72,7 +85,7 @@ lazy_static::lazy_static! {
 
         Arc::new(Mutex::new(Handle {
             doc,
-            main: div,
+            main_div,
             ws: ws,
             state: State::Connecting,
         }))
@@ -80,21 +93,6 @@ lazy_static::lazy_static! {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-
-fn document() -> Document {
-    web_sys::window()
-        .expect("no global `window` exists")
-        .document()
-        .expect("should have a document on window")
-}
-// Returns the HTML document and the main `div` into which we'll draw things
-fn doc_div() -> (Document, HtmlElement) {
-    let doc = document();
-    (doc.clone(), doc.get_element_by_id("main")
-         .expect("Could not find `main` div")
-         .dyn_into::<HtmlElement>()
-         .expect("Failed to convert into `HtmlElement`"))
-}
 
 // Boilerplate to wrap, bind, and forget a callback
 fn set_event_cb<E, F, T>(obj: &E, name: &str, f: F)
@@ -111,47 +109,16 @@ fn set_event_cb<E, F, T>(obj: &E, name: &str, f: F)
     cb.forget();
 }
 
-fn get_err_span() -> Result<HtmlElement, web_sys::Element> {
-    let (doc, div) = doc_div();
-    match doc.get_element_by_id("err_span") {
-        Some(err) => err,
-        None => {
-            let err_div = doc.create_element("div")?;
-            err_div.set_id("error");
-
-            let i = doc.create_element("i")?;
-            i.set_class_name("fas fa-exclamation-triangle");
-
-            let span = doc.create_element("span")?;
-            span.set_id("err_span");
-
-            err_div.append_child(&i)?;
-            err_div.append_child(&span)?;
-
-            div.append_child(&err_div)?;
-            span
-        },
-    }.dyn_into::<HtmlElement>()
-}
-
-fn clear_div(div: &HtmlElement) -> Result<(), JsValue> {
-    while let Some(c) = div.first_child() {
-        div.remove_child(&c)?;
-    }
-    Ok(())
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 
 impl Handle {
     fn on_unknown_room(&mut self, room: String) -> Result<(), JsValue> {
-        let err = get_err_span()?;
-        err.set_text_content(Some(&format!("Could not find room '{}'", room)));
-
-        document().get_element_by_id("play_button")
-            .expect("Could not find button")
-            .dyn_into::<HtmlButtonElement>()?
-            .set_disabled(false);
+        if let State::CreateOrJoin(s) = &self.state {
+            let err = format!("Could not find room '{}'", room);
+            s.err_span.set_text_content(Some(&err));
+            s.err_div.set_hidden(false);
+            s.play_button.set_disabled(false);
+        }
         Ok(())
     }
 
@@ -162,88 +129,83 @@ impl Handle {
             .expect("Could not send message");
     }
 
-    fn sender(&self) -> impl Fn(ClientMessage) {
-        let ws = self.ws.clone();
-        move |msg| {
-            let encoded = serde_json::to_string(&msg)
-                .expect("Failed to encode");
-            ws.send_with_str(&encoded)
-                .expect("Could not send message");
-        }
-    }
-
     fn on_chat(&self, from: String, message: String) -> Result<(), JsValue> {
-        let doc = document();
-        if let Some(div) = doc.get_element_by_id("chat") {
-            let p = doc.create_element("p")?;
+        if let State::Playing(state) = &self.state {
+            let p = self.doc.create_element("p")?;
             p.set_class_name("msg");
 
-            let b = doc.create_element("b")?;
+            let b =self.doc.create_element("b")?;
             b.set_text_content(Some(&from));
             p.append_child(&b)?;
 
-            let s = doc.create_element("b")?;
+            let s = self.doc.create_element("b")?;
             s.set_text_content(Some(":"));
             p.append_child(&s)?;
 
-            let s = doc.create_element("span")?;
+            let s = self.doc.create_element("span")?;
             s.set_text_content(Some(&message));
             p.append_child(&s)?;
 
-            div.append_child(&p)?;
+            state.chat_div.append_child(&p)?;
             p.scroll_into_view();
         }
         Ok(())
     }
 
     fn on_information(&self, message: String) -> Result<(), JsValue> {
-        let doc = document();
-        if let Some(div) = doc.get_element_by_id("chat") {
-            let p = doc.create_element("p")?;
+        if let State::Playing(state) = &self.state {
+            let p = self.doc.create_element("p")?;
             p.set_class_name("msg");
 
-            let i = doc.create_element("i")?;
+            let i = self.doc.create_element("i")?;
             i.set_text_content(Some(&message));
             p.append_child(&i)?;
-            div.append_child(&p)?;
+            state.chat_div.append_child(&p)?;
             p.scroll_into_view();
         }
         Ok(())
     }
 
-    fn on_joined_room(&mut self, name: String, room: String) -> Result<(), JsValue> {
-        let (doc, div) = doc_div();
-        clear_div(&div)?;
+    fn clear_main_div(&self) -> Result<(), JsValue> {
+        while let Some(c) = self.main_div.first_child() {
+            self.main_div.remove_child(&c)?;
+        }
+        Ok(())
+    }
 
-        let p = doc.create_element("p")?;
-        let b = doc.create_element("b")?;
+    fn on_joined_room(&mut self, name: String, room: String) -> Result<(), JsValue> {
+        self.clear_main_div()?;
+
+        let p = self.doc.create_element("p")?;
+        let b = self.doc.create_element("b")?;
         b.set_text_content(Some("Room: "));
-        let s = doc.create_element("span")?;
+        let s = self.doc.create_element("span")?;
         s.set_text_content(Some(&room));
         p.append_child(&b)?;
         p.append_child(&s)?;
-        div.append_child(&p)?;
+        self.main_div.append_child(&p)?;
 
-        let chat_div = doc.create_element("div")?;
+        let chat_div = self.doc.create_element("div")?
+            .dyn_into::<HtmlElement>()?;
         chat_div.set_id("chat");
-        div.append_child(&chat_div)?;
+        self.main_div.append_child(&chat_div)?;
 
         // Name + text input
-        let p = doc.create_element("p")?;
-        let chat_input = doc.create_element("input")?
+        let p = self.doc.create_element("p")?;
+        let chat_input = self.doc.create_element("input")?
             .dyn_into::<HtmlInputElement>()?;
         chat_input.set_id("chat_input");
         chat_input.set_attribute("placeholder", "Send message...")?;
 
-        let b = doc.create_element("b")?;
+        let b = self.doc.create_element("b")?;
         b.set_text_content(Some(&name));
         p.append_child(&b)?;
-        let b = doc.create_element("b")?;
+        let b = self.doc.create_element("b")?;
         b.set_text_content(Some(":"));
         p.append_child(&b)?;
 
         p.append_child(&chat_input)?;
-        div.append_child(&p)?;
+        self.main_div.append_child(&p)?;
 
         // If Enter is pressed while focus is in the chat box,
         // send a chat message to the server.
@@ -255,16 +217,17 @@ impl Handle {
         });
 
         self.state = State::Playing(PlayingState {
-            chat_input
+            chat_input,
+            chat_div,
         });
         Ok(())
     }
 
     fn send_chat(&self) {
-        if let State::Playing(p) = &self.state {
-            let i = p.chat_input.value();
+        if let State::Playing(state) = &self.state {
+            let i = state.chat_input.value();
             if !i.is_empty() {
-                p.chat_input.set_value("");
+                state.chat_input.set_value("");
                 self.send(ClientMessage::Chat(i));
             }
         }
@@ -288,22 +251,18 @@ impl Handle {
     }
 
     fn on_connected(&mut self) -> Result<(), JsValue> {
-        assert!(self.state == State::Connecting);
-        self.state = State::CreateOrJoin;
-
         // Remove the "Connecting..." message
-        let (doc, div) = doc_div();
-        clear_div(&div)?;
+        self.clear_main_div()?;
 
         // When any of the text fields change, check to see whether
         // the "Join" button should be enabled
-        let form = doc.create_element("form")?;
+        let form = self.doc.create_element("form")?;
 
-        let p = doc.create_element("p")?;
-        let b = doc.create_element("b")?;
+        let p = self.doc.create_element("p")?;
+        let b = self.doc.create_element("b")?;
         b.set_text_content(Some("Name:"));
         p.append_child(&b)?;
-        let name_input = doc.create_element("input")?
+        let name_input = self.doc.create_element("input")?
             .dyn_into::<HtmlInputElement>()?;
         name_input.set_id("name_input");
         name_input.set_attribute("placeholder", "John Smith")?;
@@ -311,59 +270,96 @@ impl Handle {
         p.append_child(&name_input)?;
         form.append_child(&p)?;
 
-        let p = doc.create_element("p")?;
-        let b = doc.create_element("b")?;
+        let p = self.doc.create_element("p")?;
+        let b = self.doc.create_element("b")?;
         b.set_text_content(Some("Room:"));
         p.append_child(&b)?;
-        let room_input = doc.create_element("input")?
+        let room_input = self.doc.create_element("input")?
             .dyn_into::<HtmlInputElement>()?;
         room_input.set_id("room_input");
         room_input.set_pattern("^[a-z]+ [a-z]+ [a-z]+$");
         p.append_child(&room_input)?;
-        let room_input_ = room_input.clone();
         set_event_cb(&room_input, "invalid", move |_: Event| {
-            room_input_.set_custom_validity("three lowercase words");
+            HANDLE.lock().unwrap().set_room_invalid();
         });
         form.append_child(&p)?;
 
-        let p = doc.create_element("p")?;
-        let button = doc.create_element("button")?
+        let p = self.doc.create_element("p")?;
+        let play_button = self.doc.create_element("button")?
             .dyn_into::<HtmlButtonElement>()?;
-        button.set_text_content(Some("Create new room"));
-        button.set_id("play_button");
-        button.set_type("submit");
-        p.append_child(&button)?;
+        play_button.set_text_content(Some("Create new room"));
+        play_button.set_id("play_button");
+        play_button.set_type("submit");
+        p.append_child(&play_button)?;
         form.append_child(&p)?;
 
-        div.append_child(&form)?;
-
-        let room_input_ = room_input.clone();
-        let button_ = button.clone();
+        self.main_div.append_child(&form)?;
         set_event_cb(&room_input, "input", move |_: Event| {
-            let v = room_input_.value();
-            if v.is_empty() {
-                button_.set_text_content(Some("Create new room"));
-            } else {
-                button_.set_text_content(Some("Join existing room"));
-            }
-            room_input_.set_custom_validity("");
+            HANDLE.lock().unwrap().check_join_inputs();
+        });
+        set_event_cb(&form, "submit", move |e: Event| {
+            e.prevent_default();
+            HANDLE.lock().unwrap().try_join();
         });
 
-        let send = self.sender();
-        set_event_cb(&form, "submit", move |e: Event| {
-            button.set_disabled(true);
-            let name = name_input.value();
-            let room = room_input.value();
+        let err_div = self.doc.create_element("div")?
+            .dyn_into::<HtmlElement>()?;
+        err_div.set_id("error");
+
+        let i = self.doc.create_element("i")?;
+        i.set_class_name("fas fa-exclamation-triangle");
+
+        let err_span = self.doc.create_element("span")?
+            .dyn_into::<HtmlElement>()?;
+        err_span.set_id("err_span");
+
+        err_div.append_child(&i)?;
+        err_div.append_child(&err_span)?;
+        err_div.set_hidden(true);
+
+        self.main_div.append_child(&err_div)?;
+
+        self.state = State::CreateOrJoin(CreateOrJoinState {
+            name_input,
+            room_input,
+            play_button,
+            err_div,
+            err_span,
+        });
+
+        Ok(())
+    }
+
+    fn set_room_invalid(&mut self) {
+        if let State::CreateOrJoin(state) = &self.state {
+            state.room_input.set_custom_validity("three lowercase words");
+        }
+    }
+
+    fn check_join_inputs(&mut self) {
+        if let State::CreateOrJoin(state) = &self.state {
+            state.play_button.set_text_content(Some(
+                    if state.room_input.value().is_empty() {
+                        "Create new room"
+                    } else {
+                        "Join existing room"
+                    }));
+            state.room_input.set_custom_validity("");
+        }
+    }
+
+    fn try_join(&mut self) {
+        if let State::CreateOrJoin(s) = &self.state {
+            s.play_button.set_disabled(true);
+            let name = s.name_input.value();
+            let room = s.room_input.value();
             let msg = if room.is_empty() {
                 ClientMessage::CreateRoom(name)
             } else {
                 ClientMessage::JoinRoom(name, room)
             };
-            send(msg);
-            e.prevent_default();
-        });
-
-        Ok(())
+            self.send(msg);
+        }
     }
 
     fn on_players(&mut self, players: Vec<(String, usize)>, turn: usize)
