@@ -6,8 +6,12 @@ pub enum ClientMessage {
     CreateRoom(String),
     JoinRoom(String, String),
     Chat(String),
+
+    /*
     Play(Vec<(Piece, i32, i32)>),
     Swap(Vec<Piece>),
+    */
+
     Disconnected,
 }
 
@@ -23,6 +27,8 @@ pub enum ServerMessage {
         message: String,
     },
     Information(String),
+
+    /*
     Players {
         players: Vec<(String, usize)>,
         turn: usize,
@@ -32,6 +38,7 @@ pub enum ServerMessage {
     Board(Board), // Used to send the initial board
     Draw(Vec<Piece>),
     InvalidMove(String),
+    */
 }
 
 #[derive(Copy, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

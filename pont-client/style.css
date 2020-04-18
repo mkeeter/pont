@@ -100,4 +100,7 @@ svg#game {
     div#chat {
         height: calc(100% * 0.6);
     }
+    div#chat_col{
+        grid-column: 3;
+    }
 }

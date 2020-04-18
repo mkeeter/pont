@@ -20,6 +20,8 @@ use tokio_tungstenite::WebSocketStream;
 
 use pont_common::{ClientMessage, ServerMessage};
 
+// This message is passed into a Room task when a new player joins.
+// The room task then owns the relationship with that player.
 struct PlayerJoined {
     name: String,
     addr: SocketAddr,
@@ -107,6 +109,7 @@ impl Room {
             ClientMessage::CreateRoom(_) | ClientMessage::JoinRoom(_, _) => {
                 warn!("Invalid client message {:?}", msg);
             },
+            /*
             ClientMessage::Play(pieces) => {
                 if let Some(p) = self.players.get(&addr) {
                     trace!("[{}] {} played {:?}", self.name, p.name, pieces);
@@ -121,12 +124,14 @@ impl Room {
                     trace!("[{}] Invalid player {}", self.name, addr);
                 }
             }
+            */
         }
     }
 }
 
 async fn run_room(room_name: String,
-                  in_rx: UnboundedReceiver<PlayerJoined>)
+                  in_rx: UnboundedReceiver<PlayerJoined>,
+                  mut done: UnboundedSender<String>)
 {
     // We'll funnel all Websocket communication through this MPSC connection,
     // so each websocket's incoming stream runs in its own little task
@@ -184,12 +189,15 @@ async fn run_room(room_name: String,
     }
 
     info!("[{}] All players left, closing room.", room.name);
+    done.send(room.name).await
+        .expect("Could not close room");
 }
 
 async fn handle_connection(rooms: RoomList,
                            namer: impl Fn() -> String,
                            raw_stream: TcpStream,
-                           addr: SocketAddr)
+                           addr: SocketAddr,
+                           close_room: UnboundedSender<String>)
 {
     info!("[{}] Incoming TCP connection", addr);
 
@@ -211,7 +219,7 @@ async fn handle_connection(rooms: RoomList,
 
                 // This is the task which actually handles running
                 // each room, now that we've created it.
-                tokio::spawn(run_room(room_name, rx));
+                tokio::spawn(run_room(room_name, rx, close_room));
 
                 // Pass the player into the room's task, which will inform
                 // then that they've joined the room
@@ -252,6 +260,14 @@ async fn handle_connection(rooms: RoomList,
     info!("[{}] Dropping connection", addr);
 }
 
+async fn close_rooms(rooms: RoomList, mut rx: UnboundedReceiver<String>) {
+    while let Some(r) = rx.next().await {
+        info!("Closing room [{}]", r);
+        rooms.lock().unwrap().remove(&r);
+    }
+}
+
+
 #[tokio::main]
 async fn main() -> Result<(), IoError> {
     env_logger::from_env(Env::default().default_filter_or("pont_server=TRACE"))
@@ -280,9 +296,12 @@ async fn main() -> Result<(), IoError> {
     // Each connection is initially handled by its own task;
     // once it joins a room, it will be handled by a room-specific task
     let rooms = RoomList::new(Mutex::new(HashMap::new()));
+    let (tx, rx) = unbounded();
+    tokio::spawn(close_rooms(rooms.clone(), rx));
+
     while let Ok((stream, addr)) = listener.accept().await {
         tokio::spawn(handle_connection(rooms.clone(), namer.clone(),
-                                       stream, addr));
+                                       stream, addr, tx.clone()));
     }
 
     Ok(())

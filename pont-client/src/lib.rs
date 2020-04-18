@@ -396,12 +396,14 @@ impl Handle {
             JoinedRoom{name, room} => self.on_joined_room(name, room),
             Chat{from, message} => self.on_chat(from, message),
             Information(message) => self.on_information(message),
+            /*
             Players{ players, turn } => self.on_players(players, turn),
             YourTurn => self.on_my_turn(),
             NotYourTurn => self.on_not_my_turn(),
             Board(b) => self.on_board(b),
             Draw(pieces) => self.on_draw(pieces),
             InvalidMove(s) => self.on_invalid_move(s),
+            */
         }
     }
 
