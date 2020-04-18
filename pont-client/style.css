@@ -68,6 +68,7 @@ form:invalid button {
 div#game {
     display: grid;
     column-gap: 20px;
+    row-gap: 20px;
 }
 
 table#scores {
