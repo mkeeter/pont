@@ -399,6 +399,7 @@ impl Handle {
             Chat{from, message} => self.on_chat(from, message),
             Information(message) => self.on_information(message),
             NewPlayer(name, score) => self.on_new_player(name, score),
+            PlayerDisconnected(index) => self.on_player_disconnected(index),
             /*
             Players{ players, turn } => self.on_players(players, turn),
             YourTurn => self.on_my_turn(),
@@ -408,6 +409,17 @@ impl Handle {
             InvalidMove(s) => self.on_invalid_move(s),
             */
         }
+    }
+
+    fn on_player_disconnected(&mut self, index: usize) -> Result<(), JsValue> {
+        if let State::Playing(state) = &self.state {
+            let c = state.score_table.child_nodes()
+                .item(index as u32)
+                .unwrap()
+                .dyn_into::<HtmlElement>()?;
+            c.set_class_name("disconnected");
+        }
+        Ok(())
     }
 
     fn on_new_player(&mut self, name: String, score: u32) -> Result<(), JsValue> {

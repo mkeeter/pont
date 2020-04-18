@@ -120,6 +120,7 @@ impl Room {
                     self.players[p].ws = None;
                     self.broadcast(ServerMessage::Information(
                                     format!("{} disconnected", player_name)));
+                    self.broadcast(ServerMessage::PlayerDisconnected(p));
                 } else {
                     error!("[{}] Tried to remove non-existent player at {}",
                              self.name, addr);

@@ -28,6 +28,7 @@ pub enum ServerMessage {
     },
     Information(String),
     NewPlayer(String, u32),
+    PlayerDisconnected(usize),
 
     /*
     Players {
