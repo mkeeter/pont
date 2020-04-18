@@ -49,3 +49,24 @@ form:invalid button {
     color: #93a1a1;
     background-color: #eee8d5;
 }
+
+div#game {
+    display: grid;
+    column-gap: 20px;
+}
+
+svg#game {
+    width: calc(100% - 2px); /* accounts for border */
+    margin-bottom: 20px;
+    background-color: #fdf6e3;
+    border:1px solid #93a1a1;
+}
+
+@media only screen and (min-width: 600px) {
+    div#game {
+        grid-template-columns: 2fr 1fr;
+    }
+    div#chat {
+        height: calc(100% * 0.6);
+    }
+}

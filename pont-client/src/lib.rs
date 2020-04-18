@@ -194,6 +194,7 @@ impl PlayingState {
     fn new(doc: &Document, main_div: &HtmlElement, name: &str, room: &str)
         -> Result<State, JsValue>
     {
+        // The title lists the room name
         let p = doc.create_element("p")?;
         let b = doc.create_element("b")?;
         b.set_text_content(Some("Room: "));
@@ -203,10 +204,35 @@ impl PlayingState {
         p.append_child(&s)?;
         main_div.append_child(&p)?;
 
+        // This div is styled as either 1-3 columns based on screen size
+        let game_div = doc.create_element("div")?
+            .dyn_into::<HtmlElement>()?;
+        game_div.set_id("game");
+
+        // Add an SVG
+        let svg = doc.create_element_ns(Some("http://www.w3.org/2000/svg"), "svg")?;
+        svg.set_id("game");
+        svg.set_attribute("width", "100")?;
+        svg.set_attribute("hight", "100")?;
+        svg.set_attribute("viewBox", "0 0 100 100")?;
+
+        let circle = doc.create_element_ns(Some("http://www.w3.org/2000/svg"), "circle")?;
+        circle.set_attribute("cx", "50")?;
+        circle.set_attribute("cy", "50")?;
+        circle.set_attribute("r", "20")?;
+        circle.set_attribute("stroke", "black")?;
+        circle.set_attribute("fill", "red")?;
+        svg.append_child(&circle)?;
+        game_div.append_child(&svg)?;
+        main_div.append_child(&game_div)?;
+
+        // Create the column for chatting
+        let chat_col = doc.create_element("div")?
+            .dyn_into::<HtmlElement>()?;
         let chat_div = doc.create_element("div")?
             .dyn_into::<HtmlElement>()?;
         chat_div.set_id("chat");
-        main_div.append_child(&chat_div)?;
+        chat_col.append_child(&chat_div)?;
 
         // Name + text input
         let p = doc.create_element("p")?;
@@ -223,7 +249,8 @@ impl PlayingState {
         p.append_child(&b)?;
 
         p.append_child(&chat_input)?;
-        main_div.append_child(&p)?;
+        chat_col.append_child(&p)?;
+        game_div.append_child(&chat_col)?;
 
         // If Enter is pressed while focus is in the chat box,
         // send a chat message to the server.
@@ -445,21 +472,3 @@ pub fn main() -> Result<(), JsValue> {
 
     Ok(())
 }
-
-
-    /*
-    // Add an SVG
-    let svg = document.create_element_ns(Some("http://www.w3.org/2000/svg"), "svg")?;
-    svg.set_attribute("width", "100")?;
-    svg.set_attribute("hight", "100")?;
-    svg.set_attribute("viewBox", "0 0 100 100")?;
-
-    let circle = document.create_element_ns(Some("http://www.w3.org/2000/svg"), "circle")?;
-    circle.set_attribute("cx", "50")?;
-    circle.set_attribute("cy", "50")?;
-    circle.set_attribute("r", "20")?;
-    circle.set_attribute("stroke", "black")?;
-    circle.set_attribute("fill", "red")?;
-    svg.append_child(&circle)?;
-    body.append_child(&svg)?;
-    */
