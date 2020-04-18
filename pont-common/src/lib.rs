@@ -15,7 +15,7 @@ pub enum ClientMessage {
     Disconnected,
 }
 
-#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum ServerMessage {
     JoinedRoom {
         name: String,
@@ -27,6 +27,7 @@ pub enum ServerMessage {
         message: String,
     },
     Information(String),
+    NewPlayer(String, u32),
 
     /*
     Players {

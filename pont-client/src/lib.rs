@@ -28,6 +28,7 @@ macro_rules! console_log {
 struct PlayingState {
     chat_div: HtmlElement,
     chat_input: HtmlInputElement,
+    score_table: HtmlElement,
 }
 
 #[derive(Eq, PartialEq)]
@@ -74,8 +75,7 @@ lazy_static::lazy_static! {
         main_div.set_id("main");
         main_div.append_child(&val)
             .expect("Could not append child");
-
-        body.append_child(&main_div)
+        body.insert_adjacent_element("afterbegin", &main_div)
             .expect("Could not append child");
 
         let hostname = doc.location().unwrap().hostname()
@@ -228,7 +228,8 @@ impl PlayingState {
 
         let score_col = doc.create_element("div")?
             .dyn_into::<HtmlElement>()?;
-        let score_table = doc.create_element("table")?;
+        let score_table = doc.create_element("table")?
+            .dyn_into::<HtmlElement>()?;
         score_table.set_id("scores");
         let tr = doc.create_element("tr")?;
         let th = doc.create_element("th")?;
@@ -285,6 +286,7 @@ impl PlayingState {
         Ok(State::Playing(PlayingState {
             chat_input,
             chat_div,
+            score_table,
         }))
     }
 
@@ -396,6 +398,7 @@ impl Handle {
             JoinedRoom{name, room} => self.on_joined_room(name, room),
             Chat{from, message} => self.on_chat(from, message),
             Information(message) => self.on_information(message),
+            NewPlayer(name, score) => self.on_new_player(name, score),
             /*
             Players{ players, turn } => self.on_players(players, turn),
             YourTurn => self.on_my_turn(),
@@ -407,13 +410,28 @@ impl Handle {
         }
     }
 
+    fn on_new_player(&mut self, name: String, score: u32) -> Result<(), JsValue> {
+        // Append a player to the bottom of the scores list
+        if let State::Playing(state) = &self.state {
+            let tr = self.doc.create_element("tr")?;
+            let td = self.doc.create_element("td")?;
+            td.set_text_content(Some(&name));
+            tr.append_child(&td)?;
+            let td = self.doc.create_element("td")?;
+            td.set_text_content(Some(&format!("{}", score)));
+            tr.append_child(&td)?;
+            state.score_table.append_child(&tr)?;
+        }
+        Ok(())
+    }
+
     fn on_connected(&mut self) -> Result<(), JsValue> {
         // Remove the "Connecting..." message
         self.clear_main_div()?;
         self.state = CreateOrJoinState::new(&self.doc, &self.main_div)?;
 
         // Insta-join a room
-        self.send(ClientMessage::CreateRoom("Matt".to_string()));
+        //self.send(ClientMessage::CreateRoom("Matt".to_string()));
         Ok(())
     }
 

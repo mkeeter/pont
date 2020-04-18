@@ -39,24 +39,33 @@ struct PlayerJoined {
 
 type RoomList = Arc<Mutex<HashMap<String, UnboundedSender<PlayerJoined>>>>;
 
-struct ActivePlayer {
+struct Player {
     name: String,
-    ws: UnboundedSender<ServerMessage>,
+    score: u32,
+    ws: Option<UnboundedSender<ServerMessage>>
 }
 
 struct Room {
     name: String,
     started: bool,
-    players: HashMap<SocketAddr, ActivePlayer>,
+    connections: HashMap<SocketAddr, usize>,
+    players: Vec<Player>,
 }
 
 impl Room {
     fn running(&self) -> bool {
-        !self.started || self.players.len() > 0
+        !self.started || self.connections.len() > 0
     }
 
-    fn add_player(&mut self, addr: SocketAddr, name: String,
-        ws: SplitSink<WebSocketStream<TcpStream>, WebsocketMessage>)
+    fn broadcast(&self, s: ServerMessage) {
+        for c in self.connections.values() {
+            self.players[*c].ws.as_ref().unwrap().unbounded_send(s.clone())
+                .expect("Failed to send broadcast");
+        }
+    }
+
+    fn add_player(&mut self, addr: SocketAddr, player_name: String,
+                  ws: SplitSink<WebSocketStream<TcpStream>, WebsocketMessage>)
     {
         // Store an UnboundedSender so we can write to websockets
         // without an async call, with messages being passed to
@@ -69,51 +78,59 @@ impl Room {
             .map(|m| Ok(m))
             .forward(ws));
 
-        let player = ActivePlayer { name, ws: ws_tx };
-        player.ws.unbounded_send(ServerMessage::JoinedRoom{
-                name: player.name.clone(),
+        // Tell the player that they have joined the room
+        ws_tx.unbounded_send(ServerMessage::JoinedRoom{
+                name: player_name.clone(),
                 room: self.name.clone() })
             .expect("Could not send JoinedRoom");
-        player.ws.unbounded_send(ServerMessage::Information(
-                format!("Welcome, {}!", player.name.clone())))
+        // ...and send them a personalized welcome chat message
+        ws_tx.unbounded_send(ServerMessage::Information(
+                format!("Welcome, {}!", player_name.clone())))
             .expect("Could not send JoinedRoom");
 
-        for p in self.players.values() {
-            p.ws.unbounded_send(ServerMessage::Information(
-                    format!("{} joined the room", player.name)))
-                .expect("Failed to write chat message");
-        }
+        // Tell all other players that someone has joined
+        self.broadcast(ServerMessage::Information(
+                format!("{} joined the room", player_name.clone())));
+        // Add the new player to the scoreboard
+        self.broadcast(ServerMessage::NewPlayer(player_name.clone(), 0));
 
-        self.players.insert(addr, player);
+        // Add the new player to the active list of connections and players
+        self.connections.insert(addr, self.players.len());
+        self.players.push(Player {
+            name: player_name,
+            score: 0,
+            ws: Some(ws_tx.clone()) });
         self.started = true;
+        for p in self.players.iter() {
+            ws_tx.unbounded_send(ServerMessage::NewPlayer(
+                    p.name.clone(),
+                    p.score))
+                .expect("Could not send initial scores");
+        }
     }
 
     fn on_message(&mut self, addr: SocketAddr, msg: ClientMessage) {
         trace!("[{}] Got message {:?} from {}", self.name, msg, addr);
         match msg {
             ClientMessage::Disconnected => {
-                if let Some(p) = self.players.remove(&addr) {
+                if let Some(p) = self.connections.remove(&addr) {
+                    let player_name = self.players[p].name.clone();
                     info!("[{}] Removed disconnected player '{}'",
-                             self.name, p.name);
-                    for p in self.players.values() {
-                        p.ws.unbounded_send(ServerMessage::Information(
-                                format!("{} disconnected", p.name)))
-                            .expect("Failed to write chat message");
-                    }
+                          self.name, player_name);
+                    self.players[p].ws = None;
+                    self.broadcast(ServerMessage::Information(
+                                    format!("{} disconnected", player_name)));
                 } else {
                     error!("[{}] Tried to remove non-existent player at {}",
                              self.name, addr);
                 }
             },
             ClientMessage::Chat(c) => {
-                let name = self.players.get(&addr)
-                    .map_or("unknown", |p| &p.name);
-                for p in self.players.values() {
-                    p.ws.unbounded_send(ServerMessage::Chat{
+                let name = self.connections.get(&addr)
+                    .map_or("unknown", |i| &self.players[*i].name);
+                self.broadcast(ServerMessage::Chat{
                             from: name.to_string(),
-                            message: c.clone()})
-                        .expect("Failed to write chat message");
-                }
+                            message: c.clone()});
             },
             ClientMessage::CreateRoom(_) | ClientMessage::JoinRoom(_, _) => {
                 warn!("Invalid client message {:?}", msg);
@@ -149,7 +166,8 @@ async fn run_room(room_name: String,
     let mut room = Room {
         name: room_name,
         started: false,
-        players: HashMap::new(),
+        connections: HashMap::new(),
+        players: Vec::new(),
     };
 
     info!("[{}] Started room!", room.name);
