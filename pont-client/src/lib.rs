@@ -111,6 +111,175 @@ fn set_event_cb<E, F, T>(obj: &E, name: &str, f: F)
 
 ////////////////////////////////////////////////////////////////////////////////
 
+impl CreateOrJoinState {
+    fn new(doc: &Document, main_div: &HtmlElement) -> Result<State, JsValue> {
+        // When any of the text fields change, check to see whether
+        // the "Join" button should be enabled
+        let form = doc.create_element("form")?;
+
+        let p = doc.create_element("p")?;
+        let b = doc.create_element("b")?;
+        b.set_text_content(Some("Name:"));
+        p.append_child(&b)?;
+        let name_input = doc.create_element("input")?
+            .dyn_into::<HtmlInputElement>()?;
+        name_input.set_id("name_input");
+        name_input.set_attribute("placeholder", "John Smith")?;
+        name_input.set_required(true);
+        p.append_child(&name_input)?;
+        form.append_child(&p)?;
+
+        let p = doc.create_element("p")?;
+        let b = doc.create_element("b")?;
+        b.set_text_content(Some("Room:"));
+        p.append_child(&b)?;
+        let room_input = doc.create_element("input")?
+            .dyn_into::<HtmlInputElement>()?;
+        room_input.set_id("room_input");
+        room_input.set_pattern("^[a-z]+ [a-z]+ [a-z]+$");
+        p.append_child(&room_input)?;
+        set_event_cb(&room_input, "invalid", move |_: Event| {
+            HANDLE.lock().unwrap().set_room_invalid();
+        });
+        form.append_child(&p)?;
+
+        let p = doc.create_element("p")?;
+        let play_button = doc.create_element("button")?
+            .dyn_into::<HtmlButtonElement>()?;
+        play_button.set_text_content(Some("Create new room"));
+        play_button.set_id("play_button");
+        play_button.set_type("submit");
+        p.append_child(&play_button)?;
+        form.append_child(&p)?;
+
+        main_div.append_child(&form)?;
+        set_event_cb(&room_input, "input", move |_: Event| {
+            HANDLE.lock().unwrap().check_join_inputs();
+        });
+        set_event_cb(&form, "submit", move |e: Event| {
+            e.prevent_default();
+            HANDLE.lock().unwrap().try_join();
+        });
+
+        let err_div = doc.create_element("div")?
+            .dyn_into::<HtmlElement>()?;
+        err_div.set_id("error");
+
+        let i = doc.create_element("i")?;
+        i.set_class_name("fas fa-exclamation-triangle");
+
+        let err_span = doc.create_element("span")?
+            .dyn_into::<HtmlElement>()?;
+        err_span.set_id("err_span");
+
+        err_div.append_child(&i)?;
+        err_div.append_child(&err_span)?;
+        err_div.set_hidden(true);
+
+        main_div.append_child(&err_div)?;
+
+        Ok(State::CreateOrJoin(CreateOrJoinState {
+            name_input,
+            room_input,
+            play_button,
+            err_div,
+            err_span,
+        }))
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+impl PlayingState {
+    fn new(doc: &Document, main_div: &HtmlElement, name: &str, room: &str)
+        -> Result<State, JsValue>
+    {
+        let p = doc.create_element("p")?;
+        let b = doc.create_element("b")?;
+        b.set_text_content(Some("Room: "));
+        let s = doc.create_element("span")?;
+        s.set_text_content(Some(room));
+        p.append_child(&b)?;
+        p.append_child(&s)?;
+        main_div.append_child(&p)?;
+
+        let chat_div = doc.create_element("div")?
+            .dyn_into::<HtmlElement>()?;
+        chat_div.set_id("chat");
+        main_div.append_child(&chat_div)?;
+
+        // Name + text input
+        let p = doc.create_element("p")?;
+        let chat_input = doc.create_element("input")?
+            .dyn_into::<HtmlInputElement>()?;
+        chat_input.set_id("chat_input");
+        chat_input.set_attribute("placeholder", "Send message...")?;
+
+        let b = doc.create_element("b")?;
+        b.set_text_content(Some(name));
+        p.append_child(&b)?;
+        let b = doc.create_element("b")?;
+        b.set_text_content(Some(":"));
+        p.append_child(&b)?;
+
+        p.append_child(&chat_input)?;
+        main_div.append_child(&p)?;
+
+        // If Enter is pressed while focus is in the chat box,
+        // send a chat message to the server.
+        set_event_cb(&chat_input, "keyup", move |e: KeyboardEvent| {
+            if e.key_code() == 13 { // Enter key
+                e.prevent_default();
+                HANDLE.lock().unwrap().send_chat();
+            }
+        });
+
+        Ok(State::Playing(PlayingState {
+            chat_input,
+            chat_div,
+        }))
+    }
+
+    fn append_chat_message(&self, doc: &Document, from: &str, msg: &str)
+        -> Result<(), JsValue>
+    {
+        let p = doc.create_element("p")?;
+        p.set_class_name("msg");
+
+        let b =doc.create_element("b")?;
+        b.set_text_content(Some(from));
+        p.append_child(&b)?;
+
+        let s = doc.create_element("b")?;
+        s.set_text_content(Some(":"));
+        p.append_child(&s)?;
+
+        let s = doc.create_element("span")?;
+        s.set_text_content(Some(msg));
+        p.append_child(&s)?;
+
+        self.chat_div.append_child(&p)?;
+        p.scroll_into_view();
+        Ok(())
+    }
+
+    fn append_info_message(&self, doc: &Document, msg: &str)
+        -> Result<(), JsValue>
+    {
+        let p = doc.create_element("p")?;
+        p.set_class_name("msg");
+
+        let i = doc.create_element("i")?;
+        i.set_text_content(Some(msg));
+        p.append_child(&i)?;
+        self.chat_div.append_child(&p)?;
+        p.scroll_into_view();
+        Ok(())
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 impl Handle {
     fn on_unknown_room(&mut self, room: String) -> Result<(), JsValue> {
         if let State::CreateOrJoin(s) = &self.state {
@@ -131,39 +300,18 @@ impl Handle {
 
     fn on_chat(&self, from: String, message: String) -> Result<(), JsValue> {
         if let State::Playing(state) = &self.state {
-            let p = self.doc.create_element("p")?;
-            p.set_class_name("msg");
-
-            let b =self.doc.create_element("b")?;
-            b.set_text_content(Some(&from));
-            p.append_child(&b)?;
-
-            let s = self.doc.create_element("b")?;
-            s.set_text_content(Some(":"));
-            p.append_child(&s)?;
-
-            let s = self.doc.create_element("span")?;
-            s.set_text_content(Some(&message));
-            p.append_child(&s)?;
-
-            state.chat_div.append_child(&p)?;
-            p.scroll_into_view();
+            state.append_chat_message(&self.doc, &from, &message)
+        } else {
+            Ok(())
         }
-        Ok(())
     }
 
     fn on_information(&self, message: String) -> Result<(), JsValue> {
         if let State::Playing(state) = &self.state {
-            let p = self.doc.create_element("p")?;
-            p.set_class_name("msg");
-
-            let i = self.doc.create_element("i")?;
-            i.set_text_content(Some(&message));
-            p.append_child(&i)?;
-            state.chat_div.append_child(&p)?;
-            p.scroll_into_view();
+            state.append_info_message(&self.doc, &message)
+        } else {
+            Ok(())
         }
-        Ok(())
     }
 
     fn clear_main_div(&self) -> Result<(), JsValue> {
@@ -173,53 +321,12 @@ impl Handle {
         Ok(())
     }
 
-    fn on_joined_room(&mut self, name: String, room: String) -> Result<(), JsValue> {
+    fn on_joined_room(&mut self, name: String, room: String)
+        -> Result<(), JsValue>
+    {
         self.clear_main_div()?;
-
-        let p = self.doc.create_element("p")?;
-        let b = self.doc.create_element("b")?;
-        b.set_text_content(Some("Room: "));
-        let s = self.doc.create_element("span")?;
-        s.set_text_content(Some(&room));
-        p.append_child(&b)?;
-        p.append_child(&s)?;
-        self.main_div.append_child(&p)?;
-
-        let chat_div = self.doc.create_element("div")?
-            .dyn_into::<HtmlElement>()?;
-        chat_div.set_id("chat");
-        self.main_div.append_child(&chat_div)?;
-
-        // Name + text input
-        let p = self.doc.create_element("p")?;
-        let chat_input = self.doc.create_element("input")?
-            .dyn_into::<HtmlInputElement>()?;
-        chat_input.set_id("chat_input");
-        chat_input.set_attribute("placeholder", "Send message...")?;
-
-        let b = self.doc.create_element("b")?;
-        b.set_text_content(Some(&name));
-        p.append_child(&b)?;
-        let b = self.doc.create_element("b")?;
-        b.set_text_content(Some(":"));
-        p.append_child(&b)?;
-
-        p.append_child(&chat_input)?;
-        self.main_div.append_child(&p)?;
-
-        // If Enter is pressed while focus is in the chat box,
-        // send a chat message to the server.
-        set_event_cb(&chat_input, "keyup", move |e: KeyboardEvent| {
-            if e.key_code() == 13 { // Enter key
-                e.prevent_default();
-                HANDLE.lock().unwrap().send_chat();
-            }
-        });
-
-        self.state = State::Playing(PlayingState {
-            chat_input,
-            chat_div,
-        });
+        self.state = PlayingState::new(
+            &self.doc, &self.main_div, &name, &room)?;
         Ok(())
     }
 
@@ -253,80 +360,7 @@ impl Handle {
     fn on_connected(&mut self) -> Result<(), JsValue> {
         // Remove the "Connecting..." message
         self.clear_main_div()?;
-
-        // When any of the text fields change, check to see whether
-        // the "Join" button should be enabled
-        let form = self.doc.create_element("form")?;
-
-        let p = self.doc.create_element("p")?;
-        let b = self.doc.create_element("b")?;
-        b.set_text_content(Some("Name:"));
-        p.append_child(&b)?;
-        let name_input = self.doc.create_element("input")?
-            .dyn_into::<HtmlInputElement>()?;
-        name_input.set_id("name_input");
-        name_input.set_attribute("placeholder", "John Smith")?;
-        name_input.set_required(true);
-        p.append_child(&name_input)?;
-        form.append_child(&p)?;
-
-        let p = self.doc.create_element("p")?;
-        let b = self.doc.create_element("b")?;
-        b.set_text_content(Some("Room:"));
-        p.append_child(&b)?;
-        let room_input = self.doc.create_element("input")?
-            .dyn_into::<HtmlInputElement>()?;
-        room_input.set_id("room_input");
-        room_input.set_pattern("^[a-z]+ [a-z]+ [a-z]+$");
-        p.append_child(&room_input)?;
-        set_event_cb(&room_input, "invalid", move |_: Event| {
-            HANDLE.lock().unwrap().set_room_invalid();
-        });
-        form.append_child(&p)?;
-
-        let p = self.doc.create_element("p")?;
-        let play_button = self.doc.create_element("button")?
-            .dyn_into::<HtmlButtonElement>()?;
-        play_button.set_text_content(Some("Create new room"));
-        play_button.set_id("play_button");
-        play_button.set_type("submit");
-        p.append_child(&play_button)?;
-        form.append_child(&p)?;
-
-        self.main_div.append_child(&form)?;
-        set_event_cb(&room_input, "input", move |_: Event| {
-            HANDLE.lock().unwrap().check_join_inputs();
-        });
-        set_event_cb(&form, "submit", move |e: Event| {
-            e.prevent_default();
-            HANDLE.lock().unwrap().try_join();
-        });
-
-        let err_div = self.doc.create_element("div")?
-            .dyn_into::<HtmlElement>()?;
-        err_div.set_id("error");
-
-        let i = self.doc.create_element("i")?;
-        i.set_class_name("fas fa-exclamation-triangle");
-
-        let err_span = self.doc.create_element("span")?
-            .dyn_into::<HtmlElement>()?;
-        err_span.set_id("err_span");
-
-        err_div.append_child(&i)?;
-        err_div.append_child(&err_span)?;
-        err_div.set_hidden(true);
-
-        self.main_div.append_child(&err_div)?;
-
-        self.state = State::CreateOrJoin(CreateOrJoinState {
-            name_input,
-            room_input,
-            play_button,
-            err_div,
-            err_span,
-        });
-
+        self.state = CreateOrJoinState::new(&self.doc, &self.main_div)?;
         Ok(())
     }
 
