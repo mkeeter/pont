@@ -105,23 +105,36 @@ impl Room {
         self.started = true;
     }
 
+    fn on_client_disconnected(&mut self, addr: SocketAddr) {
+        if let Some(p) = self.connections.remove(&addr) {
+            let player_name = self.players[p].name.clone();
+            info!("[{}] Removed disconnected player '{}'",
+                  self.name, player_name);
+            self.players[p].ws = None;
+            self.broadcast(ServerMessage::Information(
+                            format!("{} disconnected", player_name)));
+            self.broadcast(ServerMessage::PlayerDisconnected(p));
+
+            // Find the next active player and broadcast out that info
+            if p == self.active_player && self.connections.len() > 0 {
+                while self.players[self.active_player].ws.is_none() {
+                    self.active_player = (self.active_player + 1) %
+                                          self.players.len();
+                }
+                info!("[{}] Active player changed to {}", self.name,
+                      self.players[self.active_player].name);
+                self.broadcast(ServerMessage::PlayerTurn(self.active_player));
+            }
+        } else {
+            error!("[{}] Tried to remove non-existent player at {}",
+                     self.name, addr);
+        }
+    }
+
     fn on_message(&mut self, addr: SocketAddr, msg: ClientMessage) {
         trace!("[{}] Got message {:?} from {}", self.name, msg, addr);
         match msg {
-            ClientMessage::Disconnected => {
-                if let Some(p) = self.connections.remove(&addr) {
-                    let player_name = self.players[p].name.clone();
-                    info!("[{}] Removed disconnected player '{}'",
-                          self.name, player_name);
-                    self.players[p].ws = None;
-                    self.broadcast(ServerMessage::Information(
-                                    format!("{} disconnected", player_name)));
-                    self.broadcast(ServerMessage::PlayerDisconnected(p));
-                } else {
-                    error!("[{}] Tried to remove non-existent player at {}",
-                             self.name, addr);
-                }
-            },
+            ClientMessage::Disconnected => self.on_client_disconnected(addr),
             ClientMessage::Chat(c) => {
                 let name = self.connections.get(&addr)
                     .map_or("unknown", |i| &self.players[*i].name);

@@ -30,6 +30,7 @@ pub enum ServerMessage {
     Information(String),
     NewPlayer(String),
     PlayerDisconnected(usize),
+    PlayerTurn(usize),
 
     /*
     Players {

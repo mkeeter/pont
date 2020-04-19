@@ -249,32 +249,6 @@ impl PlayingState {
         th.set_text_content(Some("Score"));
         tr.append_child(&th)?;
         score_table.append_child(&tr)?;
-        for (i, (name, score, connected)) in players.iter().enumerate() {
-            let tr = doc.create_element("tr")?;
-            let td = doc.create_element("td")?;
-            let r = doc.create_element("i")?;
-            r.set_class_name("fas fa-caret-right");
-            td.append_child(&r)?;
-            td.set_class_name(if i == active_player {
-                    "active"
-                } else {
-                    "inactive "});
-            tr.append_child(&td)?;
-            let td = doc.create_element("td")?;
-            if i == player_index {
-                td.set_text_content(Some(&format!("{} (you)", name)));
-            } else {
-                td.set_text_content(Some(name));
-            }
-            tr.append_child(&td)?;
-            let td = doc.create_element("td")?;
-            td.set_text_content(Some(&format!("{}", score)));
-            tr.append_child(&td)?;
-            if !connected {
-                tr.set_class_name("disconnected");
-            }
-            score_table.append_child(&tr)?;
-        }
         score_col.append_child(&score_table)?;
         game_div.append_child(&score_col)?;
 
@@ -316,13 +290,24 @@ impl PlayingState {
             }
         });
 
-        Ok(State::Playing(PlayingState {
+        let out = PlayingState {
             chat_input,
             chat_div,
             score_table,
             player_index,
             active_player,
-        }))
+        };
+
+        for (i, (name, score, connected)) in players.iter().enumerate() {
+            out.add_player_row(doc,
+                if i == player_index {
+                    format!("{} (you)", name)
+                } else {
+                    name.to_string()
+                },
+                *score as usize, i == active_player, *connected)?;
+        }
+        Ok(State::Playing(out))
     }
 
     fn append_chat_message(&self, doc: &Document, from: &str, msg: &str)
@@ -361,12 +346,46 @@ impl PlayingState {
         p.scroll_into_view();
         Ok(())
     }
+
+    fn add_player_row(&self, doc: &Document,
+                      name: String, score: usize,
+                      active: bool, connected: bool)
+        -> Result<(), JsValue>
+    {
+        let tr = doc.create_element("tr")?;
+        tr.set_class_name("player-row");
+        if active {
+            tr.class_list().add_1("active")?;
+        }
+
+        let td = doc.create_element("td")?;
+        let i = doc.create_element("i")?;
+        i.set_class_name("fas fa-caret-right");
+        td.append_child(&i)?;
+        tr.append_child(&td)?;
+
+        let td = doc.create_element("td")?;
+        td.set_text_content(Some(&name));
+        tr.append_child(&td)?;
+
+        let td = doc.create_element("td")?;
+        td.set_text_content(Some("0"));
+        tr.append_child(&td)?;
+
+        if !connected {
+            tr.class_list().add_1("disconnected")?;
+        }
+
+        self.score_table.append_child(&tr)?;
+
+        Ok(())
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
 impl Handle {
-    fn on_unknown_room(&mut self, room: String) -> Result<(), JsValue> {
+    fn on_unknown_room(&self, room: String) -> Result<(), JsValue> {
         if let State::CreateOrJoin(s) = &self.state {
             let err = format!("Could not find room '{}'", room);
             s.err_span.set_text_content(Some(&err));
@@ -440,6 +459,7 @@ impl Handle {
             Information(message) => self.on_information(message),
             NewPlayer(name) => self.on_new_player(name),
             PlayerDisconnected(index) => self.on_player_disconnected(index),
+            PlayerTurn(active_player) => self.on_player_turn(active_player),
             /*
             Players{ players, turn } => self.on_players(players, turn),
             YourTurn => self.on_my_turn(),
@@ -451,35 +471,42 @@ impl Handle {
         }
     }
 
-    fn on_player_disconnected(&mut self, index: usize) -> Result<(), JsValue> {
+    fn on_player_disconnected(&self, index: usize) -> Result<(), JsValue> {
         if let State::Playing(state) = &self.state {
             let c = state.score_table.child_nodes()
                 .item((index + 1) as u32)
                 .unwrap()
                 .dyn_into::<HtmlElement>()?;
-            c.set_class_name("disconnected");
+            c.class_list().add_1("disconnected")?;
         }
         Ok(())
     }
 
-    fn on_new_player(&mut self, name: String) -> Result<(), JsValue> {
+    fn on_player_turn(&mut self, active_player: usize) -> Result<(), JsValue> {
+        if let State::Playing(state) = &mut self.state {
+            let children = state.score_table.child_nodes();
+            children
+                .item((state.active_player + 1) as u32)
+                .unwrap()
+                .dyn_into::<HtmlElement>()?
+                .class_list()
+                .remove_1("active")?;
+
+            state.active_player = active_player;
+            children
+                .item((state.active_player + 1) as u32)
+                .unwrap()
+                .dyn_into::<HtmlElement>()?
+                .class_list()
+                .add_1("active")?;
+        }
+        Ok(())
+    }
+
+    fn on_new_player(&self, name: String) -> Result<(), JsValue> {
         // Append a player to the bottom of the scores list
         if let State::Playing(state) = &self.state {
-            let tr = self.doc.create_element("tr")?;
-            let td = self.doc.create_element("td")?;
-            let r = self.doc.create_element("i")?;
-            r.set_class_name("fas fa-caret-right");
-            td.append_child(&r)?;
-            td.set_class_name("inactive");
-            tr.append_child(&td)?;
-            let td = self.doc.create_element("td")?;
-            td.set_text_content(Some(&name));
-            tr.append_child(&td)?;
-            let td = self.doc.create_element("td")?;
-            td.set_text_content(Some("0"));
-            tr.append_child(&td)?;
-            state.score_table.append_child(&tr)?;
-
+            state.add_player_row(&self.doc, name.clone(), 0, false, true)?;
             state.append_info_message(&self.doc,
                                       &format!("{} joined the room", name))?;
         }
@@ -526,22 +553,6 @@ impl Handle {
             };
             self.send(msg);
         }
-    }
-
-    fn on_my_turn(&mut self) -> Result<(), JsValue> {
-        Ok(())
-    }
-    fn on_not_my_turn(&mut self) -> Result<(), JsValue> {
-        Ok(())
-    }
-    fn on_board(&mut self, board: pont_common::Board) -> Result<(), JsValue> {
-        Ok(())
-    }
-    fn on_draw(&mut self, pieces: Vec<pont_common::Piece>) -> Result<(), JsValue> {
-        Ok(())
-    }
-    fn on_invalid_move(&mut self, msg: String) -> Result<(), JsValue> {
-        Ok(())
     }
 }
 

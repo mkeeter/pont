@@ -81,10 +81,10 @@ table#scores {
 th {
     border-bottom: 1px solid #000;
 }
-td.inactive {
+tr.player-row i {
     visibility: hidden;
 }
-td.active {
+tr.player-row.active i {
     visibility: visible;
 }
 
