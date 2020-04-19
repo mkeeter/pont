@@ -25,25 +25,30 @@ macro_rules! console_log {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Eq, PartialEq)]
 struct PlayingState {
     chat_div: HtmlElement,
     chat_input: HtmlInputElement,
     score_table: HtmlElement,
     player_index: usize,
     active_player: usize,
+
+    // Callback is owned so that it lives as long as the state
+    _keyup_cb: Closure<dyn FnMut(KeyboardEvent)>,
 }
 
-#[derive(Eq, PartialEq)]
 struct CreateOrJoinState {
     name_input: HtmlInputElement,
     room_input: HtmlInputElement,
     play_button: HtmlButtonElement,
     err_div: HtmlElement,
     err_span: HtmlElement,
+
+    // Callbacks are owned so that it lives as long as the state
+    _room_invalid_cb: Closure<dyn FnMut(Event)>,
+    _input_cb: Closure<dyn FnMut(Event)>,
+    _submit_cb: Closure<dyn FnMut(Event)>,
 }
 
-#[derive(Eq, PartialEq)]
 enum State {
     Connecting,
     CreateOrJoin(CreateOrJoinState),
@@ -97,8 +102,10 @@ lazy_static::lazy_static! {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-// Boilerplate to wrap, bind, and forget a callback
-fn set_event_cb<E, F, T>(obj: &E, name: &str, f: F)
+// Boilerplate to wrap and bind a callback.
+// The resulting callback must be stored for as long as it may be used.
+#[must_use]
+fn set_event_cb<E, F, T>(obj: &E, name: &str, f: F) -> Closure<dyn std::ops::FnMut(T)>
     where E: JsCast + Clone + std::fmt::Debug,
           F: FnMut(T) + 'static,
           T: FromWasmAbi + 'static
@@ -109,7 +116,7 @@ fn set_event_cb<E, F, T>(obj: &E, name: &str, f: F)
         .expect("Could not convert into `EventTarget`");
     target.add_event_listener_with_callback(name, cb.as_ref().unchecked_ref())
         .expect("Could not add event listener");
-    cb.forget();
+    cb
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -141,9 +148,10 @@ impl CreateOrJoinState {
         room_input.set_id("room_input");
         room_input.set_pattern("^[a-z]+ [a-z]+ [a-z]+$");
         p.append_child(&room_input)?;
-        set_event_cb(&room_input, "invalid", move |_: Event| {
-            HANDLE.lock().unwrap().set_room_invalid();
-        });
+        let room_invalid_cb = set_event_cb(&room_input, "invalid",
+            move |_: Event| {
+                HANDLE.lock().unwrap().set_room_invalid();
+            });
         form.append_child(&p)?;
 
         let p = doc.create_element("p")?;
@@ -156,10 +164,10 @@ impl CreateOrJoinState {
         form.append_child(&p)?;
 
         main_div.append_child(&form)?;
-        set_event_cb(&room_input, "input", move |_: Event| {
+        let input_cb = set_event_cb(&room_input, "input", move |_: Event| {
             HANDLE.lock().unwrap().check_join_inputs();
         });
-        set_event_cb(&form, "submit", move |e: Event| {
+        let submit_cb = set_event_cb(&form, "submit", move |e: Event| {
             e.prevent_default();
             HANDLE.lock().unwrap().try_join();
         });
@@ -187,6 +195,10 @@ impl CreateOrJoinState {
             play_button,
             err_div,
             err_span,
+
+            _input_cb: input_cb,
+            _submit_cb: submit_cb,
+            _room_invalid_cb: room_invalid_cb,
         }))
     }
 }
@@ -283,12 +295,13 @@ impl PlayingState {
 
         // If Enter is pressed while focus is in the chat box,
         // send a chat message to the server.
-        set_event_cb(&chat_input, "keyup", move |e: KeyboardEvent| {
-            if e.key_code() == 13 { // Enter key
-                e.prevent_default();
-                HANDLE.lock().unwrap().send_chat();
-            }
-        });
+        let keyup_cb = set_event_cb(&chat_input, "keyup",
+            move |e: KeyboardEvent| {
+                if e.key_code() == 13 { // Enter key
+                    e.prevent_default();
+                    HANDLE.lock().unwrap().send_chat();
+                }
+            });
 
         let out = PlayingState {
             chat_input,
@@ -296,6 +309,8 @@ impl PlayingState {
             score_table,
             player_index,
             active_player,
+
+            _keyup_cb: keyup_cb,
         };
 
         for (i, (name, score, connected)) in players.iter().enumerate() {
@@ -563,10 +578,13 @@ impl Handle {
 pub fn main() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
 
+    // These callbacks are deliberately forgotten so that they aren't
+    // destroyed when main() ends.  Other callbacks are owned in State
+    // objects, but that's not an option here.
     set_event_cb(&HANDLE.lock().unwrap().ws, "open", move |_: JsValue| {
         let mut state = HANDLE.lock().unwrap();
         state.on_connected().expect("Failed to connect");
-    });
+    }).forget();
 
     set_event_cb(&HANDLE.lock().unwrap().ws, "message", move |e: MessageEvent| {
         let msg = serde_json::from_str(&e.data().as_string().unwrap())
@@ -574,11 +592,11 @@ pub fn main() -> Result<(), JsValue> {
         let mut state = HANDLE.lock().unwrap();
         state.on_message(msg)
             .expect("Failed to handle message");
-    });
+    }).forget();
 
     set_event_cb(&HANDLE.lock().unwrap().ws, "close", move |_: Event| {
         console_log!("Socket closed");
-    });
+    }).forget();
 
     Ok(())
 }
