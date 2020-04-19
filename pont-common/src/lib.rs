@@ -65,7 +65,5 @@ pub enum Color {
     Purple,
 }
 
-#[derive(Copy, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct Piece(Shape, Color);
-
+pub type Piece = (Shape, Color);
 pub type Board = HashMap<(i32, i32), Piece>;

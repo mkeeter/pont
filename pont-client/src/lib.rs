@@ -4,6 +4,7 @@ use wasm_bindgen::convert::FromWasmAbi;
 
 use std::sync::{Arc, Mutex};
 use web_sys::{
+    Element,
     Event,
     EventTarget,
     Document,
@@ -13,10 +14,11 @@ use web_sys::{
     HtmlTableCellElement,
     HtmlInputElement,
     MessageEvent,
+    SvgElement,
     WebSocket,
 };
 
-use pont_common::{ClientMessage, ServerMessage};
+use pont_common::{ClientMessage, ServerMessage, Shape, Color, Piece};
 
 // Minimal logging macro
 macro_rules! console_log {
@@ -25,12 +27,19 @@ macro_rules! console_log {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+struct Board {
+    doc: Document,
+    svg: SvgElement,
+}
+
 struct PlayingState {
     chat_div: HtmlElement,
     chat_input: HtmlInputElement,
     score_table: HtmlElement,
     player_index: usize,
     active_player: usize,
+
+    board: Board,
 
     // Callback is owned so that it lives as long as the state
     _keyup_cb: Closure<dyn FnMut(KeyboardEvent)>,
@@ -61,6 +70,7 @@ struct Handle {
     ws: WebSocket,
     state: State,
 }
+
 unsafe impl Send for Handle { /* YOLO */}
 
 lazy_static::lazy_static! {
@@ -119,6 +129,128 @@ fn set_event_cb<E, F, T>(obj: &E, name: &str, f: F) -> Closure<dyn std::ops::FnM
     cb
 }
 
+////////////////////////////////////////////////////////////////////////////////
+
+impl Board {
+    fn new(doc: &Document, game_div: &HtmlElement) -> Result<Board, JsValue> {
+        // Add an SVG
+        let svg = doc.create_element_ns(Some("http://www.w3.org/2000/svg"), "svg")?
+            .dyn_into::<SvgElement>()?;
+        svg.set_id("game");
+        svg.set_attribute("width", "100")?;
+        svg.set_attribute("hight", "100")?;
+        svg.set_attribute("viewBox", "0 0 100 100")?;
+
+        let circle = doc.create_element_ns(Some("http://www.w3.org/2000/svg"), "circle")?;
+        circle.set_attribute("cx", "50")?;
+        circle.set_attribute("cy", "50")?;
+        circle.set_attribute("r", "20")?;
+        circle.set_attribute("stroke", "black")?;
+        circle.set_attribute("fill", "red")?;
+        svg.append_child(&circle)?;
+        game_div.append_child(&svg)?;
+
+        let mut out = Board { doc: doc.clone(), svg };
+        out.add_piece((Shape::Circle, Color::Red), 0, 0)?;
+        out.add_piece((Shape::Square, Color::Blue), 2, 0)?;
+        out.add_piece((Shape::Clover, Color::Yellow), 1, 0)?;
+        out.add_piece((Shape::Diamond, Color::Green), 3, 0)?;
+        out.add_piece((Shape::Cross, Color::Purple), 4, 0)?;
+        out.add_piece((Shape::Star, Color::Orange), 5, 0)?;
+        console_log!("ADDED PIECE");
+        Ok(out)
+    }
+
+    fn create(&self, t: &str) -> Result<Element, JsValue> {
+        self.doc.create_element_ns(Some("http://www.w3.org/2000/svg"), t)
+    }
+
+    fn add_piece(&mut self, p: Piece, x: i32, y: i32) -> Result<(), JsValue> {
+        let g = self.create("g")?;
+        let r = self.create("rect")?;
+        r.class_list().add_1("piece")?;
+        r.set_attribute("width", "10.0")?;
+        r.set_attribute("height", "10.0")?;
+        let s = match p.0 {
+            Shape::Circle => {
+                let s = self.create("circle")?;
+                s.set_attribute("r", "3.0")?;
+                s.set_attribute("cx", "5.0")?;
+                s.set_attribute("cy", "5.0")?;
+                s
+            },
+            Shape::Square => {
+                let s = self.create("rect")?;
+                s.set_attribute("width", "6.0")?;
+                s.set_attribute("height", "6.0")?;
+                s.set_attribute("x", "2.0")?;
+                s.set_attribute("y", "2.0")?;
+                s
+            }
+            Shape::Clover => {
+                let s = self.create("g")?;
+                for (x, y) in &[(5.0, 3.0), (5.0, 7.0), (3.0, 5.0), (7.0, 5.0)]
+                {
+                    let c = self.create("circle")?;
+                    c.set_attribute("r", "1.5")?;
+                    c.set_attribute("cx", &x.to_string())?;
+                    c.set_attribute("cy", &y.to_string())?;
+                    s.append_child(&c)?;
+                }
+                let r = self.create("rect")?;
+                r.set_attribute("width", "4.0")?;
+                r.set_attribute("height", "3.0")?;
+                r.set_attribute("x", "3.0")?;
+                r.set_attribute("y", "3.5")?;
+                s.append_child(&r)?;
+
+                let r = self.create("rect")?;
+                r.set_attribute("width", "3.0")?;
+                r.set_attribute("height", "4.0")?;
+                r.set_attribute("x", "3.5")?;
+                r.set_attribute("y", "3.0")?;
+                s.append_child(&r)?;
+
+                s
+            }
+            Shape::Diamond => {
+                let s = self.create("polygon")?;
+                s.set_attribute("points", "2,5 5,8 8,5 5,2")?;
+                s
+            }
+            Shape::Cross => {
+                let s = self.create("polygon")?;
+                s.set_attribute("points", "2,2 3.5,5 2,8 5,6.5 8,8 6.5,5 8,2 5,3.5")?;
+                s
+            }
+            Shape::Star => {
+                let g = self.create("g")?;
+                let s = self.create("polygon")?;
+                s.set_attribute("points", "3,3 4,5 3,7 5,6 7,7 6,5 7,3 5,4")?;
+                g.append_child(&s)?;
+                let s = self.create("polygon")?;
+                s.set_attribute("points", "1,5 4,6 5,9 6,6 9,5 6,4 5,1 4,4")?;
+                g.append_child(&s)?;
+                g
+            }
+        };
+        s.class_list().add_1(match p.1 {
+            Color::Orange => "shape-orange",
+            Color::Yellow => "shape-yellow",
+            Color::Green => "shape-green",
+            Color::Red => "shape-red",
+            Color::Blue => "shape-blue",
+            Color::Purple => "shape-purple",
+        })?;
+
+        g.append_child(&r)?;
+        g.append_child(&s)?;
+        g.set_attribute("transform", &format!("translate({} {})", x * 10, y * 10))?;
+
+        self.svg.append_child(&g)?;
+        Ok(())
+    }
+}
 ////////////////////////////////////////////////////////////////////////////////
 
 impl CreateOrJoinState {
@@ -230,21 +362,7 @@ impl PlayingState {
         game_div.set_id("game");
         main_div.append_child(&game_div)?;
 
-        // Add an SVG
-        let svg = doc.create_element_ns(Some("http://www.w3.org/2000/svg"), "svg")?;
-        svg.set_id("game");
-        svg.set_attribute("width", "100")?;
-        svg.set_attribute("hight", "100")?;
-        svg.set_attribute("viewBox", "0 0 100 100")?;
-
-        let circle = doc.create_element_ns(Some("http://www.w3.org/2000/svg"), "circle")?;
-        circle.set_attribute("cx", "50")?;
-        circle.set_attribute("cy", "50")?;
-        circle.set_attribute("r", "20")?;
-        circle.set_attribute("stroke", "black")?;
-        circle.set_attribute("fill", "red")?;
-        svg.append_child(&circle)?;
-        game_div.append_child(&svg)?;
+        let board = Board::new(doc, &game_div)?;
 
         let score_col = doc.create_element("div")?
             .dyn_into::<HtmlElement>()?;
@@ -304,6 +422,8 @@ impl PlayingState {
             });
 
         let out = PlayingState {
+            board,
+
             chat_input,
             chat_div,
             score_table,
@@ -384,7 +504,7 @@ impl PlayingState {
         tr.append_child(&td)?;
 
         let td = doc.create_element("td")?;
-        td.set_text_content(Some("0"));
+        td.set_text_content(Some(&format!("{}", score)));
         tr.append_child(&td)?;
 
         if !connected {
@@ -534,7 +654,7 @@ impl Handle {
         self.state = CreateOrJoinState::new(&self.doc, &self.main_div)?;
 
         // Insta-join a room
-        //self.send(ClientMessage::CreateRoom("Matt".to_string()));
+        self.send(ClientMessage::CreateRoom("Matt".to_string()));
         Ok(())
     }
 

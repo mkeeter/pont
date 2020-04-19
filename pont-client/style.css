@@ -88,6 +88,31 @@ tr.player-row.active i {
     visibility: visible;
 }
 
+rect.piece {
+    fill: #073642;
+    stroke-width: 0.5;
+    stroke: #657b83;
+}
+
+.shape-orange {
+    fill: #cb4b16;
+}
+.shape-yellow {
+    fill: #b58900;
+}
+.shape-green {
+    fill: #859900;
+}
+.shape-red {
+    fill: #dc322f;
+}
+.shape-blue {
+    fill: #268bd2;
+}
+.shape-purple {
+    fill: #d33682;
+}
+
 svg#game {
     width: calc(100% - 2px); /* accounts for border */
     margin-bottom: 20px;

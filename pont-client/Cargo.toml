@@ -32,7 +32,6 @@ features = [
   'Location',
   'MessageEvent',
   'SvgElement',
-  'SvgCircleElement',
   'Node',
   'NodeList',
   'WebSocket',
