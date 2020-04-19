@@ -10,6 +10,7 @@ use web_sys::{
     KeyboardEvent,
     HtmlButtonElement,
     HtmlElement,
+    HtmlTableCellElement,
     HtmlInputElement,
     MessageEvent,
     WebSocket,
@@ -239,17 +240,32 @@ impl PlayingState {
             .dyn_into::<HtmlElement>()?;
         score_table.set_id("scores");
         let tr = doc.create_element("tr")?;
-        let th = doc.create_element("th")?;
+        let th = doc.create_element("th")?
+            .dyn_into::<HtmlTableCellElement>()?;
+        th.set_col_span(2);
         th.set_text_content(Some("Player"));
         tr.append_child(&th)?;
         let th = doc.create_element("th")?;
         th.set_text_content(Some("Score"));
         tr.append_child(&th)?;
         score_table.append_child(&tr)?;
-        for (name, score, connected) in players.iter() {
+        for (i, (name, score, connected)) in players.iter().enumerate() {
             let tr = doc.create_element("tr")?;
             let td = doc.create_element("td")?;
-            td.set_text_content(Some(name));
+            let r = doc.create_element("i")?;
+            r.set_class_name("fas fa-caret-right");
+            td.append_child(&r)?;
+            td.set_class_name(if i == active_player {
+                    "active"
+                } else {
+                    "inactive "});
+            tr.append_child(&td)?;
+            let td = doc.create_element("td")?;
+            if i == player_index {
+                td.set_text_content(Some(&format!("{} (you)", name)));
+            } else {
+                td.set_text_content(Some(name));
+            }
             tr.append_child(&td)?;
             let td = doc.create_element("td")?;
             td.set_text_content(Some(&format!("{}", score)));
@@ -278,10 +294,7 @@ impl PlayingState {
         let chat_name_div = doc.create_element("p")?;
         chat_name_div.set_id("chat_name");
         let b = doc.create_element("b")?;
-        b.set_text_content(Some(&players[player_index].0));
-        chat_name_div.append_child(&b)?;
-        let b = doc.create_element("b")?;
-        b.set_text_content(Some(":"));
+        b.set_text_content(Some(&format!("{}:", players[player_index].0)));
         chat_name_div.append_child(&b)?;
         chat_input_div.append_child(&chat_name_div)?;
 
@@ -454,12 +467,21 @@ impl Handle {
         if let State::Playing(state) = &self.state {
             let tr = self.doc.create_element("tr")?;
             let td = self.doc.create_element("td")?;
+            let r = self.doc.create_element("i")?;
+            r.set_class_name("fas fa-caret-right");
+            td.append_child(&r)?;
+            td.set_class_name("inactive");
+            tr.append_child(&td)?;
+            let td = self.doc.create_element("td")?;
             td.set_text_content(Some(&name));
             tr.append_child(&td)?;
             let td = self.doc.create_element("td")?;
             td.set_text_content(Some("0"));
             tr.append_child(&td)?;
             state.score_table.append_child(&tr)?;
+
+            state.append_info_message(&self.doc,
+                                      &format!("{} joined the room", name))?;
         }
         Ok(())
     }

@@ -81,6 +81,12 @@ table#scores {
 th {
     border-bottom: 1px solid #000;
 }
+td.inactive {
+    visibility: hidden;
+}
+td.active {
+    visibility: visible;
+}
 
 svg#game {
     width: calc(100% - 2px); /* accounts for border */

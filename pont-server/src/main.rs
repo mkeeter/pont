@@ -68,6 +68,9 @@ impl Room {
     fn add_player(&mut self, addr: SocketAddr, player_name: String,
                   ws: SplitSink<WebSocketStream<TcpStream>, WebsocketMessage>)
     {
+        // Add the new player to the scoreboard
+        self.broadcast(ServerMessage::NewPlayer(player_name.clone()));
+
         // Store an UnboundedSender so we can write to websockets
         // without an async call, with messages being passed to
         // the actual socket by another worker task.
@@ -78,12 +81,6 @@ impl Room {
             .map(|t| WebsocketMessage::Text(t))
             .map(|m| Ok(m))
             .forward(ws));
-
-        // Tell all other players that someone has joined
-        self.broadcast(ServerMessage::Information(
-                format!("{} joined the room", player_name.clone())));
-        // Add the new player to the scoreboard
-        self.broadcast(ServerMessage::NewPlayer(player_name.clone()));
 
         // Add the new player to the active list of connections and players
         self.connections.insert(addr, self.players.len());
