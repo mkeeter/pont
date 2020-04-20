@@ -28,15 +28,28 @@ macro_rules! console_log {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+type Pos = (f32, f32);
+enum DragState {
+    Idle,
+    Dragging(Element, Pos),
+    Dropping {
+        target: Element,
+        start: Pos,
+        end: Pos,
+        t0: f64
+    },
+}
+
 struct Board {
     doc: Document,
     svg: SvgGraphicsElement,
 
-    drag_offset: (f32, f32),
+    drag: DragState,
 
     pointer_down_cb: Closure<dyn FnMut(PointerEvent)>,
     pointer_move_cb: Closure<dyn FnMut(PointerEvent)>,
     pointer_up_cb: Closure<dyn FnMut(PointerEvent)>,
+    anim_cb: Closure<dyn FnMut(f64)>,
 }
 
 struct PlayingState {
@@ -172,12 +185,20 @@ impl Board {
                 .canvas_pointer_up(evt)
                 .expect("Failed to pointer_down event");
         });
+        let anim_cb = build_cb(move |evt: f64| {
+            HANDLE.lock().unwrap()
+                .canvas_anim(evt)
+                .expect("Failed to anim event");
+        });
 
         let mut out = Board {
             doc: doc.clone(),
-            drag_offset: (0.0, 0.0),
+            drag: DragState::Idle,
             svg,
-            pointer_down_cb, pointer_up_cb, pointer_move_cb };
+            pointer_down_cb,
+            pointer_up_cb,
+            pointer_move_cb,
+            anim_cb};
         out.add_piece((Shape::Circle, Color::Red), 0, 0)?;
         out.add_piece((Shape::Square, Color::Blue), 2, 0)?;
         out.add_piece((Shape::Clover, Color::Yellow), 1, 0)?;
@@ -187,7 +208,7 @@ impl Board {
         Ok(out)
     }
 
-    fn transform_of(e: Element) -> (f32, f32) {
+    fn get_transform(e: &Element) -> (f32, f32) {
         let t = e.get_attribute("transform").unwrap();
         let s = t.chars()
             .filter(|&c| c.is_digit(10) || c == ' ' || c == '.' || c == '-')
@@ -211,50 +232,86 @@ impl Board {
     fn pointer_down(&mut self, evt: PointerEvent) -> Result<(), JsValue> {
         evt.prevent_default();
         let t = evt.target().unwrap();
-        t.add_event_listener_with_callback("pointermove",
-                self.pointer_move_cb.as_ref().unchecked_ref())
-            .expect("Could not add event listener");
-        t.add_event_listener_with_callback("pointerup",
-                self.pointer_up_cb.as_ref().unchecked_ref())
-            .expect("Could not add event listener");
+
         let mut t = t.dyn_into::<Element>()?;
-        t.set_pointer_capture(evt.pointer_id())?;
 
         // Walk up the tree to find the piece's <g> group,
         // which sets its position with a translation
         while !t.has_attribute("transform") {
             t = t.parent_node().unwrap().dyn_into::<Element>()?;
         }
-        let (mx, my) = self.mouse_pos(evt);
-        let (dx, dy) = Self::transform_of(t);
+        self.svg.remove_child(&t)?;
+        self.svg.append_child(&t)?;
 
-        self.drag_offset = (mx - dx, my - dy);
-        console_log!("Recording offset {} {}, {} {}, {:?}", 
-                     mx, my, dx, dy, self.drag_offset);
+        t.set_pointer_capture(evt.pointer_id())?;
+        t.add_event_listener_with_callback("pointermove",
+                self.pointer_move_cb.as_ref().unchecked_ref())
+            .expect("Could not add event listener");
+        t.add_event_listener_with_callback("pointerup",
+                self.pointer_up_cb.as_ref().unchecked_ref())
+            .expect("Could not add event listener");
+        let (mx, my) = self.mouse_pos(evt);
+        let (dx, dy) = Self::get_transform(&t);
+
+        self.drag = DragState::Dragging(t, (mx - dx, my - dy));
         Ok(())
     }
 
-    fn pointer_up(&self, evt: PointerEvent) -> Result<(), JsValue> {
+    fn pointer_up(&mut self, evt: PointerEvent) -> Result<(), JsValue> {
         console_log!("pointer up {:?}", evt);
         evt.prevent_default();
-        evt.target().unwrap()
-            .remove_event_listener_with_callback("pointermove",
-                self.pointer_move_cb.as_ref().unchecked_ref())
-            .expect("Could not add event listener");
+        if let DragState::Dragging(t, _offset) = &self.drag {
+            t.remove_event_listener_with_callback("pointermove",
+                    self.pointer_move_cb.as_ref().unchecked_ref())
+                .expect("Could not remove event listener");
+            t.remove_event_listener_with_callback("pointerup",
+                    self.pointer_up_cb.as_ref().unchecked_ref())
+                .expect("Could not remove event listener");
+            let (x, y) = Self::get_transform(&t);
+            web_sys::window()
+                .expect("no global `window` exists")
+                .request_animation_frame(self.anim_cb.as_ref()
+                                         .unchecked_ref())?;
+            self.drag = DragState::Dropping {
+                target: t.clone(),
+                start: (x, y),
+                end: ((x / 10.0).round() * 10.0, (y / 10.0).round() * 10.0),
+                t0: evt.time_stamp(),
+            };
+        }
+
         Ok(())
     }
 
     fn pointer_move(&self, evt: PointerEvent) -> Result<(), JsValue> {
         evt.prevent_default();
-        let mut t = evt.target().unwrap().dyn_into::<Element>()?;
-        while !t.has_attribute("transform") {
-            t = t.parent_node().unwrap().dyn_into::<Element>()?;
+        if let DragState::Dragging(t, (dx, dy)) = &self.drag {
+            let (mx, my) = self.mouse_pos(evt);
+            t.set_attribute("transform", &format!("translate({} {})",
+                mx - dx,
+                my - dy))?;
         }
-        let (mx, my) = self.mouse_pos(evt);
-        t.set_attribute("transform", &format!("translate({} {})",
-            mx - self.drag_offset.0,
-            my - self.drag_offset.1))?;
+        Ok(())
+    }
 
+    fn anim(&mut self, t: f64) -> Result<(), JsValue> {
+        if let DragState::Dropping{target, start, end, t0} = &mut self.drag {
+            let anim_length = 10.0;
+            let mut frac = ((t - *t0) / anim_length) as f32;
+            if frac > 1.0 {
+                frac = 1.0;
+            }
+            let x = start.0 * (1.0 - frac) + end.0 * frac;
+            let y = start.1 * (1.0 - frac) + end.1 * frac;
+            target.set_attribute("transform",
+                                 &format!("translate({} {})", x, y))?;
+            if frac < 1.0 {
+                web_sys::window()
+                    .expect("no global `window` exists")
+                    .request_animation_frame(self.anim_cb.as_ref()
+                                             .unchecked_ref())?;
+            }
+        }
         Ok(())
     }
 
@@ -651,9 +708,17 @@ impl Handle {
         }
     }
 
-    fn canvas_pointer_up(&self, evt: PointerEvent) -> Result<(), JsValue> {
-        if let State::Playing(state) = &self.state {
+    fn canvas_pointer_up(&mut self, evt: PointerEvent) -> Result<(), JsValue> {
+        if let State::Playing(state) = &mut self.state {
             state.board.pointer_up(evt)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn canvas_anim(&mut self, t: f64) -> Result<(), JsValue> {
+        if let State::Playing(state) = &mut self.state {
+            state.board.anim(t)
         } else {
             Ok(())
         }
