@@ -14,7 +14,8 @@ use web_sys::{
     HtmlTableCellElement,
     HtmlInputElement,
     MessageEvent,
-    SvgElement,
+    PointerEvent,
+    SvgGraphicsElement,
     WebSocket,
 };
 
@@ -29,7 +30,13 @@ macro_rules! console_log {
 
 struct Board {
     doc: Document,
-    svg: SvgElement,
+    svg: SvgGraphicsElement,
+
+    drag_offset: (f32, f32),
+
+    pointer_down_cb: Closure<dyn FnMut(PointerEvent)>,
+    pointer_move_cb: Closure<dyn FnMut(PointerEvent)>,
+    pointer_up_cb: Closure<dyn FnMut(PointerEvent)>,
 }
 
 struct PlayingState {
@@ -115,12 +122,20 @@ lazy_static::lazy_static! {
 // Boilerplate to wrap and bind a callback.
 // The resulting callback must be stored for as long as it may be used.
 #[must_use]
+fn build_cb<F, T>(f: F) -> Closure<dyn std::ops::FnMut(T)>
+    where F: FnMut(T) + 'static,
+          T: FromWasmAbi + 'static
+{
+    Closure::wrap(Box::new(f) as Box<dyn FnMut(T)>)
+}
+
+#[must_use]
 fn set_event_cb<E, F, T>(obj: &E, name: &str, f: F) -> Closure<dyn std::ops::FnMut(T)>
     where E: JsCast + Clone + std::fmt::Debug,
           F: FnMut(T) + 'static,
           T: FromWasmAbi + 'static
 {
-    let cb = Closure::wrap(Box::new(f) as Box<dyn FnMut(T)>);
+    let cb = build_cb(f);
     let target = obj.clone()
         .dyn_into::<EventTarget>()
         .expect("Could not convert into `EventTarget`");
@@ -135,30 +150,112 @@ impl Board {
     fn new(doc: &Document, game_div: &HtmlElement) -> Result<Board, JsValue> {
         // Add an SVG
         let svg = doc.create_element_ns(Some("http://www.w3.org/2000/svg"), "svg")?
-            .dyn_into::<SvgElement>()?;
+            .dyn_into::<SvgGraphicsElement>()?;
         svg.set_id("game");
         svg.set_attribute("width", "100")?;
         svg.set_attribute("hight", "100")?;
-        svg.set_attribute("viewBox", "0 0 100 100")?;
-
-        let circle = doc.create_element_ns(Some("http://www.w3.org/2000/svg"), "circle")?;
-        circle.set_attribute("cx", "50")?;
-        circle.set_attribute("cy", "50")?;
-        circle.set_attribute("r", "20")?;
-        circle.set_attribute("stroke", "black")?;
-        circle.set_attribute("fill", "red")?;
-        svg.append_child(&circle)?;
+        svg.set_attribute("viewBox", "0 0 200 200")?;
         game_div.append_child(&svg)?;
 
-        let mut out = Board { doc: doc.clone(), svg };
+        let pointer_down_cb = build_cb(move |evt: PointerEvent| {
+            HANDLE.lock().unwrap()
+                .canvas_pointer_down(evt)
+                .expect("Failed to pointer_down event");
+        });
+        let pointer_move_cb = build_cb(move |evt: PointerEvent| {
+            HANDLE.lock().unwrap()
+                .canvas_pointer_move(evt)
+                .expect("Failed to pointer_down event");
+        });
+        let pointer_up_cb = build_cb(move |evt: PointerEvent| {
+            HANDLE.lock().unwrap()
+                .canvas_pointer_up(evt)
+                .expect("Failed to pointer_down event");
+        });
+
+        let mut out = Board {
+            doc: doc.clone(),
+            drag_offset: (0.0, 0.0),
+            svg,
+            pointer_down_cb, pointer_up_cb, pointer_move_cb };
         out.add_piece((Shape::Circle, Color::Red), 0, 0)?;
         out.add_piece((Shape::Square, Color::Blue), 2, 0)?;
         out.add_piece((Shape::Clover, Color::Yellow), 1, 0)?;
         out.add_piece((Shape::Diamond, Color::Green), 3, 0)?;
         out.add_piece((Shape::Cross, Color::Purple), 4, 0)?;
         out.add_piece((Shape::Star, Color::Orange), 5, 0)?;
-        console_log!("ADDED PIECE");
         Ok(out)
+    }
+
+    fn transform_of(e: Element) -> (f32, f32) {
+        let t = e.get_attribute("transform").unwrap();
+        let s = t.chars()
+            .filter(|&c| c.is_digit(10) || c == ' ' || c == '.' || c == '-')
+            .collect::<String>();
+        let mut itr = s.split(' ')
+            .map(|s| s.parse().unwrap());
+
+        let dx = itr.next().unwrap();
+        let dy = itr.next().unwrap();
+
+        (dx, dy)
+    }
+
+    fn mouse_pos(&self, evt: PointerEvent) -> (f32, f32) {
+        let mat = self.svg.get_screen_ctm().unwrap();
+        let x = (evt.client_x() as f32 - mat.e()) / mat.a();
+        let y = (evt.client_y() as f32 - mat.f()) / mat.d();
+        (x, y)
+    }
+
+    fn pointer_down(&mut self, evt: PointerEvent) -> Result<(), JsValue> {
+        evt.prevent_default();
+        let t = evt.target().unwrap();
+        t.add_event_listener_with_callback("pointermove",
+                self.pointer_move_cb.as_ref().unchecked_ref())
+            .expect("Could not add event listener");
+        t.add_event_listener_with_callback("pointerup",
+                self.pointer_up_cb.as_ref().unchecked_ref())
+            .expect("Could not add event listener");
+        let mut t = t.dyn_into::<Element>()?;
+        t.set_pointer_capture(evt.pointer_id())?;
+
+        // Walk up the tree to find the piece's <g> group,
+        // which sets its position with a translation
+        while !t.has_attribute("transform") {
+            t = t.parent_node().unwrap().dyn_into::<Element>()?;
+        }
+        let (mx, my) = self.mouse_pos(evt);
+        let (dx, dy) = Self::transform_of(t);
+
+        self.drag_offset = (mx - dx, my - dy);
+        console_log!("Recording offset {} {}, {} {}, {:?}", 
+                     mx, my, dx, dy, self.drag_offset);
+        Ok(())
+    }
+
+    fn pointer_up(&self, evt: PointerEvent) -> Result<(), JsValue> {
+        console_log!("pointer up {:?}", evt);
+        evt.prevent_default();
+        evt.target().unwrap()
+            .remove_event_listener_with_callback("pointermove",
+                self.pointer_move_cb.as_ref().unchecked_ref())
+            .expect("Could not add event listener");
+        Ok(())
+    }
+
+    fn pointer_move(&self, evt: PointerEvent) -> Result<(), JsValue> {
+        evt.prevent_default();
+        let mut t = evt.target().unwrap().dyn_into::<Element>()?;
+        while !t.has_attribute("transform") {
+            t = t.parent_node().unwrap().dyn_into::<Element>()?;
+        }
+        let (mx, my) = self.mouse_pos(evt);
+        t.set_attribute("transform", &format!("translate({} {})",
+            mx - self.drag_offset.0,
+            my - self.drag_offset.1))?;
+
+        Ok(())
     }
 
     fn create(&self, t: &str) -> Result<Element, JsValue> {
@@ -247,10 +344,18 @@ impl Board {
         g.append_child(&s)?;
         g.set_attribute("transform", &format!("translate({} {})", x * 10, y * 10))?;
 
+        let target = g.clone()
+            .dyn_into::<EventTarget>()
+            .expect("Could not convert into `EventTarget`");
+        target.add_event_listener_with_callback("pointerdown",
+                self.pointer_down_cb.as_ref().unchecked_ref())
+            .expect("Could not add event listener");
+
         self.svg.append_child(&g)?;
         Ok(())
     }
 }
+
 ////////////////////////////////////////////////////////////////////////////////
 
 impl CreateOrJoinState {
@@ -528,6 +633,30 @@ impl Handle {
             s.play_button.set_disabled(false);
         }
         Ok(())
+    }
+
+    fn canvas_pointer_down(&mut self, evt: PointerEvent) -> Result<(), JsValue> {
+        if let State::Playing(state) = &mut self.state {
+            state.board.pointer_down(evt)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn canvas_pointer_move(&self, evt: PointerEvent) -> Result<(), JsValue> {
+        if let State::Playing(state) = &self.state {
+            state.board.pointer_move(evt)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn canvas_pointer_up(&self, evt: PointerEvent) -> Result<(), JsValue> {
+        if let State::Playing(state) = &self.state {
+            state.board.pointer_up(evt)
+        } else {
+            Ok(())
+        }
     }
 
     fn send(&self, msg: ClientMessage) {

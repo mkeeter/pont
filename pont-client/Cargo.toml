@@ -32,8 +32,11 @@ features = [
   'Location',
   'MessageEvent',
   'SvgElement',
+  'SvgGraphicsElement',
+  'SvgMatrix',
   'Node',
   'NodeList',
+  'PointerEvent',
   'WebSocket',
   'Window',
 ]
