@@ -9,3 +9,4 @@ edition = "2018"
 [dependencies]
 serde = { version = "^1.0.59", features = ["derive"] }
 serde_derive = "^1.0.59"
+rand = "*"

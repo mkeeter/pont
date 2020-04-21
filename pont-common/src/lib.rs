@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 
+use rand::thread_rng;
+use rand::seq::SliceRandom;
+
 #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum ClientMessage {
     CreateRoom(String),
@@ -66,4 +69,55 @@ pub enum Color {
 }
 
 pub type Piece = (Shape, Color);
-pub type Board = HashMap<(i32, i32), Piece>;
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Game {
+    board: HashMap<(i32, i32), Piece>,
+    bag: Vec<Piece>,
+}
+
+impl Game {
+    fn new() -> Game {
+        use Color::*;
+        use Shape::*;
+        let mut bag = Vec::new();
+        for c in &[Orange, Yellow, Green, Red, Blue, Purple] {
+            for s in &[Clover, Star, Square, Diamond, Cross, Circle] {
+                for _ in 0..3 {
+                    bag.push((*s, *c));
+                }
+            }
+        }
+        bag.shuffle(&mut thread_rng());
+
+        Game {
+            board: HashMap::new(), bag
+        }
+    }
+
+    fn deal(&mut self) -> Vec<Piece> {
+        let mut out = Vec::new();
+        for _ in 0..7 {
+            if let Some(p) = self.bag.pop() {
+                out.push(p);
+            }
+        }
+        out
+    }
+
+    fn exchange(&mut self, pieces: Vec<Piece>) -> Option<Vec<Piece>> {
+        if pieces.len() <= self.bag.len() {
+            let mut out = Vec::new();
+            for _ in 0..pieces.len() {
+                out.push(self.bag.pop().unwrap());
+            }
+            for p in pieces.into_iter() {
+                self.bag.push(p);
+            }
+            self.bag.shuffle(&mut thread_rng());
+            Some(out)
+        } else {
+            None
+        }
+    }
+}
