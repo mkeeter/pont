@@ -1,15 +1,35 @@
+:root {
+    --base03: #002b36;
+    --base02: #073642;
+    --base01: #586e75;
+    --base00: #657b83;
+    --base0: #839496;
+    --base1: #93a1a1;
+    --base2: #eee8d5;
+    --base3: #fdf6e3;
+    --yellow: #b58900;
+    --orange: #cb4b16;
+    --red: #dc322f;
+    --magenta: #d33682;
+    --violet: #6c71c4;
+    --blue: #268bd2;
+    --cyan: #2aa198;
+    --green: #859900;
+}
+
 body {
     font-family: Inconsolata, "Courier New", monospace;
     font-size: 16px;
+    color: var(--base01);
     margin-left: 20px;
     margin-right: 20px;
-    background-color: #eee8d5;
+    background-color: var(--base2);
 }
 input {
     font-family: Inconsolata, "Courier New", monospace;
     font-size: 16px;
-    background-color: #fdf6e3;
-    border:1px solid #93a1a1;
+    background-color: var(--base3);
+    border:1px solid var(--base1);
     padding: 10px;
     margin-left: 10px;
 }
@@ -25,7 +45,7 @@ div#chat_name {
     padding-top: 10px;
 }
 div#error {
-    color: #F92672;
+    color: var(--red);
 }
 span#err_span {
     margin-left: 10px;
@@ -34,8 +54,8 @@ span#err_span {
 div#chat {
     height: 100px;
     overflow-y: auto;
-    border:1px solid #93a1a1;
-    background-color: #fdf6e3;
+    border:1px solid var(--base1);
+    background-color: var(--base3);
     padding: 10px;
 }
 div#chat_col {
@@ -55,14 +75,14 @@ form button {
     padding: 10px 20px;
     font-family: Inconsolata, "Courier New", monospace;
     font-size: 16px;
-    background-color: #fdf6e3;
-    border:1px solid #93a1a1;
+    background-color: var(--base3);
+    border:1px solid var(--base1);
     border-radius: 15px
 }
 
 form:invalid button {
-    color: #93a1a1;
-    background-color: #eee8d5;
+    color: var(--base1);
+    background-color: var(--base2);
 }
 
 div#game {
@@ -71,7 +91,7 @@ div#game {
 }
 
 tr.disconnected {
-    color: #93a1a1;
+    color: var(--base1);
 }
 
 table#scores {
@@ -79,7 +99,7 @@ table#scores {
     margin-bottom: 20px;
 }
 th {
-    border-bottom: 1px solid #000;
+    border-bottom: 1px solid var(--base00);
 }
 tr.player-row i {
     visibility: hidden;
@@ -89,38 +109,40 @@ tr.player-row.active i {
 }
 
 rect.piece {
-    fill: #073642;
+    fill: var(--base02);
     stroke-width: 0.5;
-    stroke: #657b83;
+    stroke: var(--base00);
 }
 rect.shadow {
-    fill: #eee8d5;
+    fill: var(--base2);
+    stroke-width: 0.5;
+    stroke: var(--base1);
 }
 
 .shape-orange {
-    fill: #cb4b16;
+    fill: var(--orange);
 }
 .shape-yellow {
-    fill: #b58900;
+    fill: var(--yellow);
 }
 .shape-green {
-    fill: #859900;
+    fill: var(--green);
 }
 .shape-red {
-    fill: #dc322f;
+    fill: var(--red);
 }
 .shape-blue {
-    fill: #268bd2;
+    fill: var(--blue);
 }
 .shape-purple {
-    fill: #d33682;
+    fill: var(--violet);
 }
 
 svg#game {
     width: calc(100% - 2px); /* accounts for border */
     margin-bottom: 20px;
-    background-color: #fdf6e3;
-    border:1px solid #93a1a1;
+    background-color: var(--base3);
+    border:1px solid var(--base1);
 }
 
 @media only screen and (min-width: 600px) {
