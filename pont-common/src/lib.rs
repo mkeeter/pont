@@ -99,7 +99,7 @@ impl Game {
 
     pub fn deal(&mut self) -> Vec<Piece> {
         let mut out = Vec::new();
-        for _ in 0..7 {
+        for _ in 0..6 {
             if let Some(p) = self.bag.pop() {
                 out.push(p);
             }
