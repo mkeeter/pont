@@ -688,15 +688,17 @@ impl Handle {
             s.err_span.set_text_content(Some(&err));
             s.err_div.set_hidden(false);
             s.play_button.set_disabled(false);
+            Ok(())
+        } else {
+            panic!("Invalid state");
         }
-        Ok(())
     }
 
     fn canvas_pointer_down(&mut self, evt: PointerEvent) -> Result<(), JsValue> {
         if let State::Playing(state) = &mut self.state {
             state.board.pointer_down(evt)
         } else {
-            Ok(())
+            panic!("Invalid state");
         }
     }
 
@@ -704,7 +706,7 @@ impl Handle {
         if let State::Playing(state) = &self.state {
             state.board.pointer_move(evt)
         } else {
-            Ok(())
+            panic!("Invalid state");
         }
     }
 
@@ -712,7 +714,7 @@ impl Handle {
         if let State::Playing(state) = &mut self.state {
             state.board.pointer_up(evt)
         } else {
-            Ok(())
+            panic!("Invalid state");
         }
     }
 
@@ -720,7 +722,7 @@ impl Handle {
         if let State::Playing(state) = &mut self.state {
             state.board.anim(t)
         } else {
-            Ok(())
+            panic!("Invalid state");
         }
     }
 
@@ -735,7 +737,7 @@ impl Handle {
         if let State::Playing(state) = &self.state {
             state.append_chat_message(&self.doc, &from, &message)
         } else {
-            Ok(())
+            panic!("Invalid state");
         }
     }
 
@@ -743,7 +745,7 @@ impl Handle {
         if let State::Playing(state) = &self.state {
             state.append_info_message(&self.doc, &message)
         } else {
-            Ok(())
+            panic!("Invalid state");
         }
     }
 
@@ -774,6 +776,8 @@ impl Handle {
                 state.chat_input.set_value("");
                 self.send(ClientMessage::Chat(i));
             }
+        } else {
+            panic!("Invalid state");
         }
     }
 
@@ -807,8 +811,10 @@ impl Handle {
                 .unwrap()
                 .dyn_into::<HtmlElement>()?;
             c.class_list().add_1("disconnected")?;
+            Ok(())
+        } else {
+            panic!("Invalid state");
         }
-        Ok(())
     }
 
     fn on_player_turn(&mut self, active_player: usize) -> Result<(), JsValue> {
@@ -828,8 +834,10 @@ impl Handle {
                 .dyn_into::<HtmlElement>()?
                 .class_list()
                 .add_1("active")?;
+            Ok(())
+        } else {
+            panic!("Invalid state");
         }
-        Ok(())
     }
 
     fn on_new_player(&self, name: String) -> Result<(), JsValue> {
@@ -838,8 +846,10 @@ impl Handle {
             state.add_player_row(&self.doc, name.clone(), 0, false, true)?;
             state.append_info_message(&self.doc,
                                       &format!("{} joined the room", name))?;
+            Ok(())
+        } else {
+            panic!("Invalid state");
         }
-        Ok(())
     }
 
     fn on_connected(&mut self) -> Result<(), JsValue> {
@@ -855,6 +865,8 @@ impl Handle {
     fn set_room_invalid(&mut self) {
         if let State::CreateOrJoin(state) = &self.state {
             state.room_input.set_custom_validity("three lowercase words");
+        } else {
+            panic!("Invalid state");
         }
     }
 
@@ -867,6 +879,8 @@ impl Handle {
                         "Join existing room"
                     }));
             state.room_input.set_custom_validity("");
+        } else {
+            panic!("Invalid state");
         }
     }
 
@@ -881,6 +895,8 @@ impl Handle {
                 ClientMessage::JoinRoom(name, room)
             };
             self.send(msg);
+        } else {
+            panic!("Invalid state");
         }
     }
 }
