@@ -93,6 +93,9 @@ rect.piece {
     stroke-width: 0.5;
     stroke: #657b83;
 }
+rect.shadow {
+    fill: #eee8d5;
+}
 
 .shape-orange {
     fill: #cb4b16;

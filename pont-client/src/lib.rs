@@ -31,7 +31,11 @@ macro_rules! console_log {
 type Pos = (f32, f32);
 enum DragState {
     Idle,
-    Dragging(Element, Pos),
+    Dragging {
+        target: Element,
+        shadow: Element,
+        offset: Pos,
+    },
     Dropping {
         target: Element,
         start: Pos,
@@ -231,49 +235,64 @@ impl Board {
 
     fn pointer_down(&mut self, evt: PointerEvent) -> Result<(), JsValue> {
         evt.prevent_default();
-        let t = evt.target().unwrap();
+        let mut target = evt.target()
+            .unwrap()
+            .dyn_into::<Element>()?;
 
-        let mut t = t.dyn_into::<Element>()?;
+        // Shadow goes underneath the dragged piece
+        let shadow = self.create("rect")?;
+        self.svg.append_child(&shadow)?;
 
         // Walk up the tree to find the piece's <g> group,
         // which sets its position with a translation
-        while !t.has_attribute("transform") {
-            t = t.parent_node().unwrap().dyn_into::<Element>()?;
+        while !target.has_attribute("transform") {
+            target = target.parent_node().unwrap().dyn_into::<Element>()?;
         }
-        self.svg.remove_child(&t)?;
-        self.svg.append_child(&t)?;
+        self.svg.remove_child(&target)?;
+        self.svg.append_child(&target)?;
 
-        t.set_pointer_capture(evt.pointer_id())?;
-        t.add_event_listener_with_callback("pointermove",
+        target.set_pointer_capture(evt.pointer_id())?;
+        target.add_event_listener_with_callback("pointermove",
                 self.pointer_move_cb.as_ref().unchecked_ref())
             .expect("Could not add event listener");
-        t.add_event_listener_with_callback("pointerup",
+        target.add_event_listener_with_callback("pointerup",
                 self.pointer_up_cb.as_ref().unchecked_ref())
             .expect("Could not add event listener");
         let (mx, my) = self.mouse_pos(evt);
-        let (dx, dy) = Self::get_transform(&t);
+        let (dx, dy) = Self::get_transform(&target);
 
-        self.drag = DragState::Dragging(t, (mx - dx, my - dy));
+        shadow.class_list().add_1("shadow")?;
+        shadow.set_attribute("width", "10.0")?;
+        shadow.set_attribute("height", "10.0")?;
+        shadow.set_attribute("x", &dx.to_string())?;
+        shadow.set_attribute("y", &dy.to_string())?;
+
+        self.drag = DragState::Dragging {
+            target,
+            shadow,
+            offset: (mx - dx, my - dy)
+        };
         Ok(())
     }
 
     fn pointer_up(&mut self, evt: PointerEvent) -> Result<(), JsValue> {
         console_log!("pointer up {:?}", evt);
         evt.prevent_default();
-        if let DragState::Dragging(t, _offset) = &self.drag {
-            t.remove_event_listener_with_callback("pointermove",
+        if let DragState::Dragging{target, shadow, offset: _} = &self.drag {
+            target.remove_event_listener_with_callback("pointermove",
                     self.pointer_move_cb.as_ref().unchecked_ref())
                 .expect("Could not remove event listener");
-            t.remove_event_listener_with_callback("pointerup",
+            target.remove_event_listener_with_callback("pointerup",
                     self.pointer_up_cb.as_ref().unchecked_ref())
                 .expect("Could not remove event listener");
-            let (x, y) = Self::get_transform(&t);
+            let (x, y) = Self::get_transform(&target);
             web_sys::window()
                 .expect("no global `window` exists")
                 .request_animation_frame(self.anim_cb.as_ref()
                                          .unchecked_ref())?;
+            self.svg.remove_child(&shadow)?;
             self.drag = DragState::Dropping {
-                target: t.clone(),
+                target: target.clone(),
                 start: (x, y),
                 end: ((x / 10.0).round() * 10.0, (y / 10.0).round() * 10.0),
                 t0: evt.time_stamp(),
@@ -285,11 +304,15 @@ impl Board {
 
     fn pointer_move(&self, evt: PointerEvent) -> Result<(), JsValue> {
         evt.prevent_default();
-        if let DragState::Dragging(t, (dx, dy)) = &self.drag {
+        if let DragState::Dragging{target, shadow, offset} = &self.drag {
             let (mx, my) = self.mouse_pos(evt);
-            t.set_attribute("transform", &format!("translate({} {})",
-                mx - dx,
-                my - dy))?;
+
+            let x = mx - offset.0;
+            let y = my - offset.1;
+            shadow.set_attribute("x", &((x / 10.0).round() * 10.0).to_string())?;
+            shadow.set_attribute("y", &((y / 10.0).round() * 10.0).to_string())?;
+            target.set_attribute("transform",
+                                 &format!("translate({} {})", x, y))?;
         }
         Ok(())
     }
