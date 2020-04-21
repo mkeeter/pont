@@ -24,6 +24,8 @@ pub enum ServerMessage {
         room_name: String,
         players: Vec<(String, u32, bool)>,
         active_player: usize,
+        board: HashMap<(i32, i32), Piece>,
+        pieces: Vec<Piece>,
     },
     UnknownRoom(String),
     Chat {
@@ -72,12 +74,12 @@ pub type Piece = (Shape, Color);
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Game {
-    board: HashMap<(i32, i32), Piece>,
-    bag: Vec<Piece>,
+    pub board: HashMap<(i32, i32), Piece>,
+    pub bag: Vec<Piece>,
 }
 
 impl Game {
-    fn new() -> Game {
+    pub fn new() -> Game {
         use Color::*;
         use Shape::*;
         let mut bag = Vec::new();
@@ -95,7 +97,7 @@ impl Game {
         }
     }
 
-    fn deal(&mut self) -> Vec<Piece> {
+    pub fn deal(&mut self) -> Vec<Piece> {
         let mut out = Vec::new();
         for _ in 0..7 {
             if let Some(p) = self.bag.pop() {
@@ -105,7 +107,7 @@ impl Game {
         out
     }
 
-    fn exchange(&mut self, pieces: Vec<Piece>) -> Option<Vec<Piece>> {
+    pub fn exchange(&mut self, pieces: Vec<Piece>) -> Option<Vec<Piece>> {
         if pieces.len() <= self.bag.len() {
             let mut out = Vec::new();
             for _ in 0..pieces.len() {

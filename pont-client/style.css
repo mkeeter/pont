@@ -108,7 +108,12 @@ tr.player-row.active i {
     visibility: visible;
 }
 
-rect.piece {
+g.placed rect.tile {
+    fill: var(--base2);
+    stroke-width: 0.5;
+    stroke: var(--base1);
+}
+g.piece rect.tile {
     fill: var(--base02);
     stroke-width: 0.5;
     stroke: var(--base00);

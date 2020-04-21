@@ -2,6 +2,7 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::convert::FromWasmAbi;
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use web_sys::{
     Element,
@@ -49,6 +50,9 @@ struct Board {
     svg: SvgGraphicsElement,
 
     drag: DragState,
+
+    grid: HashMap<(i32, i32), Piece>,
+    hand: Vec<Piece>,
 
     pointer_down_cb: Closure<dyn FnMut(PointerEvent)>,
     pointer_move_cb: Closure<dyn FnMut(PointerEvent)>,
@@ -195,20 +199,16 @@ impl Board {
                 .expect("Failed to anim event");
         });
 
-        let mut out = Board {
+        let out = Board {
             doc: doc.clone(),
             drag: DragState::Idle,
             svg,
+            grid: HashMap::new(),
+            hand: Vec::new(),
             pointer_down_cb,
             pointer_up_cb,
             pointer_move_cb,
             anim_cb};
-        out.add_piece((Shape::Circle, Color::Red), 0, 0)?;
-        out.add_piece((Shape::Square, Color::Blue), 2, 0)?;
-        out.add_piece((Shape::Clover, Color::Yellow), 1, 0)?;
-        out.add_piece((Shape::Diamond, Color::Green), 3, 0)?;
-        out.add_piece((Shape::Cross, Color::Purple), 4, 0)?;
-        out.add_piece((Shape::Star, Color::Orange), 5, 0)?;
         Ok(out)
     }
 
@@ -342,10 +342,27 @@ impl Board {
         self.doc.create_element_ns(Some("http://www.w3.org/2000/svg"), t)
     }
 
-    fn add_piece(&mut self, p: Piece, x: i32, y: i32) -> Result<(), JsValue> {
+    fn add_hand(&mut self, p: Piece) -> Result<(), JsValue> {
+        self.hand.push(p);
+        let g = self.new_piece(p)?;
+        g.class_list().add_1("piece")?;
+        g.set_attribute("transform",
+                        &format!("translate({} 100)", 15 * self.hand.len()))?;
+
+        let target = g.clone()
+            .dyn_into::<EventTarget>()
+            .expect("Could not convert into `EventTarget`");
+        target.add_event_listener_with_callback("pointerdown",
+                self.pointer_down_cb.as_ref().unchecked_ref())
+            .expect("Could not add event listener");
+
+        Ok(())
+    }
+
+    fn new_piece(&self, p: Piece) -> Result<Element, JsValue> {
         let g = self.create("g")?;
         let r = self.create("rect")?;
-        r.class_list().add_1("piece")?;
+        r.class_list().add_1("tile")?;
         r.set_attribute("width", "10.0")?;
         r.set_attribute("height", "10.0")?;
         let s = match p.0 {
@@ -422,16 +439,19 @@ impl Board {
 
         g.append_child(&r)?;
         g.append_child(&s)?;
-        g.set_attribute("transform", &format!("translate({} {})", x * 10, y * 10))?;
-
-        let target = g.clone()
-            .dyn_into::<EventTarget>()
-            .expect("Could not convert into `EventTarget`");
-        target.add_event_listener_with_callback("pointerdown",
-                self.pointer_down_cb.as_ref().unchecked_ref())
-            .expect("Could not add event listener");
 
         self.svg.append_child(&g)?;
+
+        Ok(g)
+    }
+
+    fn add_piece(&mut self, p: Piece, x: i32, y: i32) -> Result<(), JsValue> {
+        self.grid.insert((x, y), p);
+
+        let g = self.new_piece(p)?;
+        g.class_list().add_1("placed")?;
+        g.set_attribute("transform", &format!("translate({} {})", x * 10, y * 10))?;
+
         Ok(())
     }
 }
@@ -526,7 +546,9 @@ impl PlayingState {
     fn new(doc: &Document, main_div: &HtmlElement,
            room_name: &str,
            players: &[(String, u32, bool)],
-           active_player: usize)
+           active_player: usize,
+           in_board: HashMap<(i32, i32), Piece>,
+           pieces: Vec<Piece>)
         -> Result<State, JsValue>
     {
         let player_index = players.len() - 1;
@@ -606,7 +628,7 @@ impl PlayingState {
                 }
             });
 
-        let out = PlayingState {
+        let mut out = PlayingState {
             board,
 
             chat_input,
@@ -617,6 +639,13 @@ impl PlayingState {
 
             _keyup_cb: keyup_cb,
         };
+
+        for ((x, y), p) in in_board.into_iter() {
+            out.board.add_piece(p, x, y)?;
+        }
+        for p in pieces.into_iter() {
+            out.board.add_hand(p)?;
+        }
 
         for (i, (name, score, connected)) in players.iter().enumerate() {
             out.add_player_row(doc,
@@ -781,14 +810,17 @@ impl Handle {
 
     fn on_joined_room(&mut self, room_name: String,
                       players: Vec<(String, u32, bool)>,
-                      active_player: usize)
+                      active_player: usize,
+                      board: HashMap<(i32, i32), Piece>,
+                      pieces: Vec<Piece>)
         -> Result<(), JsValue>
     {
         self.clear_main_div()?;
         self.state = PlayingState::new(
             &self.doc, &self.main_div,
             &room_name,
-            &players, active_player)?;
+            &players, active_player,
+            board, pieces)?;
         Ok(())
     }
 
@@ -809,8 +841,9 @@ impl Handle {
         console_log!("Got message {:?}", msg);
         match msg {
             UnknownRoom(name) => self.on_unknown_room(name),
-            JoinedRoom{room_name, players, active_player} =>
-                self.on_joined_room(room_name, players, active_player),
+            JoinedRoom{room_name, players, active_player, board, pieces} =>
+                self.on_joined_room(room_name, players, active_player,
+                                    board, pieces),
             Chat{from, message} => self.on_chat(from, message),
             Information(message) => self.on_information(message),
             NewPlayer(name) => self.on_new_player(name),

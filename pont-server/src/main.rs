@@ -18,7 +18,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tungstenite::protocol::Message as WebsocketMessage;
 use tokio_tungstenite::WebSocketStream;
 
-use pont_common::{ClientMessage, ServerMessage};
+use pont_common::{ClientMessage, ServerMessage, Game};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -51,6 +51,7 @@ struct Room {
     connections: HashMap<SocketAddr, usize>,
     players: Vec<Player>,
     active_player: usize,
+    game: Game,
 }
 
 impl Room {
@@ -95,7 +96,9 @@ impl Room {
                 players: self.players.iter()
                     .map(|p| (p.name.clone(), p.score, p.ws.is_some()))
                     .collect(),
-                active_player: self.active_player})
+                active_player: self.active_player,
+                board: self.game.board.clone(),
+                pieces: self.game.deal()})
             .expect("Could not send JoinedRoom");
         // ...and send them a personalized welcome chat message
         ws_tx.unbounded_send(ServerMessage::Information(
@@ -179,6 +182,7 @@ async fn run_room(room_name: String,
         connections: HashMap::new(),
         players: Vec::new(),
         active_player: 0,
+        game: Game::new(),
     };
 
     info!("[{}] Started room!", room.name);
