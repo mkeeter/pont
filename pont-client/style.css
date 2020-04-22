@@ -147,9 +147,7 @@ svg#game {
     width: calc(100% - 2px); /* accounts for border */
     background-color: var(--base3);
     border:1px solid var(--base1);
-}
-div#game {
-    margin-bottom: 20px;
+    margin-bottom: 10px;
 }
 
 @media only screen and (min-width: 600px) {
@@ -162,6 +160,9 @@ div#game {
 }
 
 @media only screen and (min-width: 1000px) {
+    svg#game {
+        margin-bottom: 0px;
+    }
     div#game {
         grid-template-columns: 2fr 1fr 1fr;
     }
