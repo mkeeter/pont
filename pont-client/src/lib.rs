@@ -209,6 +209,12 @@ impl Board {
             pointer_up_cb,
             pointer_move_cb,
             anim_cb};
+
+        let divider = out.create("path")?;
+        divider.set_attribute("d", "M 0 180 L 200 180")?;
+        divider.class_list().add_1("divider")?;
+        out.svg.append_child(&divider)?;
+
         Ok(out)
     }
 
@@ -241,6 +247,9 @@ impl Board {
 
         // Shadow goes underneath the dragged piece
         let shadow = self.create("rect")?;
+        shadow.class_list().add_1("shadow")?;
+        shadow.set_attribute("width", "10.0")?;
+        shadow.set_attribute("height", "10.0")?;
         self.svg.append_child(&shadow)?;
 
         // Walk up the tree to find the piece's <g> group,
@@ -261,9 +270,6 @@ impl Board {
         let (mx, my) = self.mouse_pos(evt);
         let (dx, dy) = Self::get_transform(&target);
 
-        shadow.class_list().add_1("shadow")?;
-        shadow.set_attribute("width", "10.0")?;
-        shadow.set_attribute("height", "10.0")?;
         shadow.set_attribute("x", &dx.to_string())?;
         shadow.set_attribute("y", &dy.to_string())?;
 
@@ -346,8 +352,8 @@ impl Board {
         self.hand.push(p);
         let g = self.new_piece(p)?;
         g.class_list().add_1("piece")?;
-        g.set_attribute("transform",
-                        &format!("translate({} 100)", 15 * self.hand.len()))?;
+        g.set_attribute("transform", &format!("translate({} 185)",
+                                              5 + 15 * (self.hand.len() - 1)))?;
 
         let target = g.clone()
             .dyn_into::<EventTarget>()

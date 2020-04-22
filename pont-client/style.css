@@ -150,6 +150,12 @@ svg#game {
     margin-bottom: 10px;
 }
 
+path.divider {
+    stroke-width: 1px;
+    stroke: var(--base1);
+    vector-effect: non-scaling-stroke;
+}
+
 @media only screen and (min-width: 600px) {
     div#game {
         grid-template-columns: 2fr 1fr;
