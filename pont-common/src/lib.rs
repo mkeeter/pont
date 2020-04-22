@@ -97,9 +97,9 @@ impl Game {
         }
     }
 
-    pub fn deal(&mut self) -> Vec<Piece> {
+    pub fn deal(&mut self, n: usize) -> Vec<Piece> {
         let mut out = Vec::new();
-        for _ in 0..6 {
+        for _ in 0..n {
             if let Some(p) = self.bag.pop() {
                 out.push(p);
             }

@@ -98,7 +98,7 @@ impl Room {
                     .collect(),
                 active_player: self.active_player,
                 board: self.game.board.clone(),
-                pieces: self.game.deal()})
+                pieces: self.game.deal(6)})
             .expect("Could not send JoinedRoom");
         // ...and send them a personalized welcome chat message
         ws_tx.unbounded_send(ServerMessage::Information(
