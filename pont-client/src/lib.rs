@@ -36,8 +36,9 @@ enum DragState {
         target: Element,
         shadow: Element,
         offset: Pos,
+        orig: Pos,
     },
-    Dropping {
+    DropToGrid {
         target: Element,
         start: Pos,
         end: Pos,
@@ -52,6 +53,7 @@ struct Board {
     drag: DragState,
 
     grid: HashMap<(i32, i32), Piece>,
+    tentative: HashMap<(i32, i32), Piece>,
     hand: Vec<Piece>,
 
     pointer_down_cb: Closure<dyn FnMut(PointerEvent)>,
@@ -204,6 +206,7 @@ impl Board {
             drag: DragState::Idle,
             svg,
             grid: HashMap::new(),
+            tentative: HashMap::new(),
             hand: Vec::new(),
             pointer_down_cb,
             pointer_up_cb,
@@ -232,7 +235,7 @@ impl Board {
         (dx, dy)
     }
 
-    fn mouse_pos(&self, evt: PointerEvent) -> (f32, f32) {
+    fn mouse_pos(&self, evt: &PointerEvent) -> (f32, f32) {
         let mat = self.svg.get_screen_ctm().unwrap();
         let x = (evt.client_x() as f32 - mat.e()) / mat.a();
         let y = (evt.client_y() as f32 - mat.f()) / mat.d();
@@ -267,7 +270,7 @@ impl Board {
         target.add_event_listener_with_callback("pointerup",
                 self.pointer_up_cb.as_ref().unchecked_ref())
             .expect("Could not add event listener");
-        let (mx, my) = self.mouse_pos(evt);
+        let (mx, my) = self.mouse_pos(&evt);
         let (dx, dy) = Self::get_transform(&target);
 
         shadow.set_attribute("x", &dx.to_string())?;
@@ -276,15 +279,48 @@ impl Board {
         self.drag = DragState::Dragging {
             target,
             shadow,
+            orig: (dx, dy),
             offset: (mx - dx, my - dy)
         };
+        Ok(())
+    }
+
+    fn pointer_move(&self, evt: PointerEvent) -> Result<(), JsValue> {
+        evt.prevent_default();
+        if let DragState::Dragging{orig: _, target, shadow, offset} = &self.drag {
+            let (mx, my) = self.mouse_pos(&evt);
+
+            let x = mx - offset.0;
+            let y = my - offset.1;
+            target.set_attribute("transform",
+                                 &format!("translate({} {})", x, y))?;
+            let x = (x / 10.0).round() as i32;
+            let y = (y / 10.0).round() as i32;
+
+            let overlapping = self.grid.contains_key(&(x, y)) ||
+                              self.tentative.contains_key(&(x, y));
+            if y < 18 && !overlapping {
+                let x = x as f32 * 10.0;
+                let y = y as f32 * 10.0;
+                shadow.set_attribute("x", &x.to_string())?;
+                shadow.set_attribute("y", &y.to_string())?;
+                shadow.set_attribute("visibility", "visible")?;
+            } else {
+                shadow.set_attribute("visibility", "hidden")?;
+            }
+        }
         Ok(())
     }
 
     fn pointer_up(&mut self, evt: PointerEvent) -> Result<(), JsValue> {
         console_log!("pointer up {:?}", evt);
         evt.prevent_default();
-        if let DragState::Dragging{target, shadow, offset: _} = &self.drag {
+        if let DragState::Dragging{target, shadow, offset, orig} = &self.drag {
+            let (mx, my) = self.mouse_pos(&evt);
+
+            let x = mx - offset.0;
+            let y = my - offset.1;
+
             target.remove_event_listener_with_callback("pointermove",
                     self.pointer_move_cb.as_ref().unchecked_ref())
                 .expect("Could not remove event listener");
@@ -296,11 +332,15 @@ impl Board {
                 .expect("no global `window` exists")
                 .request_animation_frame(self.anim_cb.as_ref()
                                          .unchecked_ref())?;
+
+            let tx = (x / 10.0).round() as i32;
+            let ty = (y / 10.0).round() as i32;
+
             self.svg.remove_child(&shadow)?;
-            self.drag = DragState::Dropping {
+            self.drag = DragState::DropToGrid {
                 target: target.clone(),
                 start: (x, y),
-                end: ((x / 10.0).round() * 10.0, (y / 10.0).round() * 10.0),
+                end: (tx as f32 * 10.0, ty as f32 * 10.0),
                 t0: evt.time_stamp(),
             };
         }
@@ -308,23 +348,8 @@ impl Board {
         Ok(())
     }
 
-    fn pointer_move(&self, evt: PointerEvent) -> Result<(), JsValue> {
-        evt.prevent_default();
-        if let DragState::Dragging{target, shadow, offset} = &self.drag {
-            let (mx, my) = self.mouse_pos(evt);
-
-            let x = mx - offset.0;
-            let y = my - offset.1;
-            shadow.set_attribute("x", &((x / 10.0).round() * 10.0).to_string())?;
-            shadow.set_attribute("y", &((y / 10.0).round() * 10.0).to_string())?;
-            target.set_attribute("transform",
-                                 &format!("translate({} {})", x, y))?;
-        }
-        Ok(())
-    }
-
     fn anim(&mut self, t: f64) -> Result<(), JsValue> {
-        if let DragState::Dropping{target, start, end, t0} = &mut self.drag {
+        if let DragState::DropToGrid{target, start, end, t0} = &mut self.drag {
             let anim_length = 10.0;
             let mut frac = ((t - *t0) / anim_length) as f32;
             if frac > 1.0 {
@@ -339,6 +364,10 @@ impl Board {
                     .expect("no global `window` exists")
                     .request_animation_frame(self.anim_cb.as_ref()
                                              .unchecked_ref())?;
+            } else {
+                let x = (end.0 / 10.0).round() as i32;
+                let y = (end.1 / 10.0).round() as i32;
+                self.tentative.insert((x, y), (Shape::Diamond, Color::Red));
             }
         }
         Ok(())
