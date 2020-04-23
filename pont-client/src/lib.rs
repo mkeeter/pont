@@ -28,6 +28,7 @@ macro_rules! console_log {
 }
 
 type JsResult<T> = Result<T, JsValue>;
+type JsError = Result<(), JsValue>;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -70,25 +71,35 @@ pub struct Base {
     doc: Document,
     main_div: HtmlElement,
     ws: WebSocket,
+
+    _open_cb: Closure<dyn FnMut(JsValue)>,
+    _message_cb: Closure<dyn FnMut(MessageEvent)>,
+    _close_cb: Closure<dyn FnMut(Event)>,
 }
 
 impl Base {
-    fn clear_main_div(&self) -> JsResult<()> {
+    fn clear_main_div(&self) -> JsError {
         while let Some(c) = self.main_div.first_child() {
             self.main_div.remove_child(&c)?;
         }
         Ok(())
     }
 
-    fn send(&self, msg: ClientMessage) {
+    fn send(&self, msg: ClientMessage) -> JsError {
         let encoded = serde_json::to_string(&msg)
-            .expect("Failed to encode");
+            .map_err(|e| JsValue::from_str(
+                    &format!("Could not encode: {}", e)))?;
         self.ws.send_with_str(&encoded)
-            .expect("Could not send message");
     }
 }
 
-struct Connecting { base: Base }
+////////////////////////////////////////////////////////////////////////////////
+
+// These are the states in the system
+struct Connecting {
+    base: Base
+}
+
 struct CreateOrJoin {
     base: Base,
 
@@ -119,6 +130,9 @@ struct Playing {
     _keyup_cb: Closure<dyn FnMut(KeyboardEvent)>,
 }
 
+
+////////////////////////////////////////////////////////////////////////////////
+
 enum State {
     Connecting(Connecting),
     CreateOrJoin(CreateOrJoin),
@@ -126,169 +140,78 @@ enum State {
     Empty,
 }
 
+macro_rules! methods {
+    ($($sub:ident => [$($name:ident($($var:ident: $type:ty),*)),+ $(,)?]),+
+       $(,)?) =>
+    {
+        $($(
+        fn $name(&mut self, $($var: $type),* ) -> JsError {
+            match self {
+                State::$sub(s) => s.$name($($var),*),
+                _ => panic!("Invalid state"),
+            }
+        }
+        )+)+
+    }
+}
+
+macro_rules! transitions {
+    ($($sub:ident => [$($name:ident($($var:ident: $type:ty),*)
+                        -> $into:ident),+ $(,)?]),+$(,)?) =>
+    {
+        $($(
+        fn $name(&mut self, $($var: $type),* ) -> JsError {
+            let s = std::mem::replace(self, State::Empty);
+            match s {
+                State::$sub(s) => *self = State::$into(s.$name($($var),*)?),
+                _ => panic!("Invalid state"),
+            }
+            Ok(())
+        }
+        )+)+
+    }
+}
+
 impl State {
-    fn on_connected(&mut self) -> JsResult<()> {
-        let s = std::mem::replace(self, State::Empty);
-        match s {
-            State::Connecting(c) => *self = c.on_connected()?,
-            _ => panic!("Invalid state"),
-        }
-        Ok(())
-    }
+    transitions!(
+        Connecting => [
+            on_connected() -> CreateOrJoin,
+        ],
+        CreateOrJoin => [
+            on_joined_room(room_name: &str, players: &[(String, u32, bool)],
+                           active_players: usize,
+                           board: &HashMap<(i32, i32), Piece>,
+                           pieces: &[Piece]) -> Playing,
+        ],
+    );
 
-    fn on_joined_room(&mut self, room_name: &str, players: &[(String, u32, bool)],
-                      active_players: usize, board: &HashMap<(i32, i32), Piece>,
-                      pieces: &[Piece]) -> JsResult<()> {
-        let s = std::mem::replace(self, State::Empty);
-        match s {
-            State::CreateOrJoin(c) => *self = c.on_joined_room(
-                room_name, players, active_players, board, pieces)?,
-            _ => panic!("Invalid state"),
-        }
-        Ok(())
-    }
-
-    fn on_pointer_down(&mut self, evt: PointerEvent) -> JsResult<()> {
-        match self {
-            State::Playing(p) => p.on_pointer_down(evt),
-            _ => panic!("Invalid state"),
-        }
-    }
-
-    fn on_pointer_up(&mut self, evt: PointerEvent) -> JsResult<()> {
-        match self {
-            State::Playing(p) => p.on_pointer_up(evt),
-            _ => panic!("Invalid state"),
-        }
-    }
-
-    fn on_pointer_move(&mut self, evt: PointerEvent) -> JsResult<()> {
-        match self {
-            State::Playing(p) => p.on_pointer_move(evt),
-            _ => panic!("Invalid state"),
-        }
-    }
-
-    fn on_anim(&mut self, t: f64) -> JsResult<()> {
-        match self {
-            State::Playing(p) => p.on_anim(t),
-            _ => panic!("Invalid state"),
-        }
-    }
-
-    fn on_room_name_invalid(&self) {
-        match self {
-            State::CreateOrJoin(p) => p.on_room_name_invalid(),
-            _ => panic!("Invalid state"),
-        }
-    }
-
-    fn on_join_inputs_changed(&self) {
-        match self {
-            State::CreateOrJoin(p) => p.on_join_inputs_changed(),
-            _ => panic!("Invalid state"),
-        }
-    }
-
-    fn on_join_button(&self) {
-        match self {
-            State::CreateOrJoin(p) => p.on_join_button(),
-            _ => panic!("Invalid state"),
-        }
-    }
-
-    fn on_chat(&self, from: &str, msg: &str) -> JsResult<()> {
-        match self {
-            State::Playing(p) => p.on_chat(from, msg),
-            _ => panic!("Invalid state"),
-        }
-    }
-
-    fn on_send_chat(&self) {
-        match self {
-            State::Playing(p) => p.on_send_chat(),
-            _ => panic!("Invalid state"),
-        }
-    }
-
-    fn on_unknown_room(&self, room: &str) {
-        match self {
-            State::CreateOrJoin(p) => p.on_unknown_room(room),
-            _ => panic!("Invalid state"),
-        }
-    }
-
-    fn on_information(&self, msg: &str) -> JsResult<()> {
-        match self {
-            State::Playing(p) => p.on_information(msg),
-            _ => panic!("Invalid state"),
-        }
-    }
-
-    fn on_new_player(&self, name: &str) -> JsResult<()> {
-        match self {
-            State::Playing(p) => p.on_new_player(name),
-            _ => panic!("Invalid state"),
-        }
-    }
+    methods!(
+        Playing => [
+            on_pointer_down(evt: PointerEvent),
+            on_pointer_up(evt: PointerEvent),
+            on_pointer_move(evt: PointerEvent),
+            on_anim(t: f64),
+            on_send_chat(),
+            on_chat(from: &str, msg: &str),
+            on_information(msg: &str),
+            on_new_player(name: &str),
+            on_player_disconnected(index: usize),
+            on_player_turn(active_player: usize),
+        ],
+        CreateOrJoin => [
+            on_room_name_invalid(),
+            on_join_inputs_changed(),
+            on_join_button(),
+            on_unknown_room(room: &str),
+        ],
+    );
 }
 
 unsafe impl Send for State { /* YOLO */}
 
 lazy_static::lazy_static! {
-    static ref HANDLE: Arc<Mutex<State>> = {
-        let doc = web_sys::window()
-            .expect("no global `window` exists")
-            .document()
-            .expect("should have a document on window");
-        let body = doc.body().expect("document should have a body");
-
-        // Manufacture the element we're gonna append
-        let val = doc.create_element("p")
-            .expect("Could not create <p>");
-        val.set_text_content(Some("Connecting..."));
-
-        let main_div = doc.create_element("div")
-            .expect("Could not create main <div>")
-            .dyn_into::<HtmlElement>()
-            .expect("Failed to convert into `HtmlElement`");
-        main_div.set_id("main");
-        main_div.append_child(&val)
-            .expect("Could not append child");
-        body.insert_adjacent_element("afterbegin", &main_div)
-            .expect("Could not append child");
-
-        let hostname = doc.location().unwrap().hostname()
-            .expect("Could not find hostname");
-        let ws = WebSocket::new(&format!("ws://{}:8080", hostname))
-            .expect("Could not create websocket");
-
-        set_event_cb(&ws, "open", move |_: JsValue| {
-            let mut h = HANDLE.lock().unwrap()
-                .on_connected()
-                .expect("Failed state transition");
-        }).forget();
-
-        set_event_cb(&ws, "message", move |e: MessageEvent| {
-            let msg = serde_json::from_str(&e.data().as_string().unwrap())
-                .expect("Failed to decode message");
-            on_message(msg)
-                .expect("Failed to handle message");
-        }).forget();
-
-        set_event_cb(&ws, "close", move |_: Event| {
-            console_log!("Socket closed");
-        }).forget();
-
-        let base = Base {
-            doc,
-            main_div,
-            ws: ws,
-        };
-        Arc::new(Mutex::new(State::Connecting(Connecting { base })))
-    };
+    static ref HANDLE: Arc<Mutex<State>> = Arc::new(Mutex::new(State::Empty));
 }
-
 ////////////////////////////////////////////////////////////////////////////////
 
 // Boilerplate to wrap and bind a callback.
@@ -302,7 +225,8 @@ fn build_cb<F, T>(f: F) -> Closure<dyn std::ops::FnMut(T)>
 }
 
 #[must_use]
-fn set_event_cb<E, F, T>(obj: &E, name: &str, f: F) -> Closure<dyn std::ops::FnMut(T)>
+fn set_event_cb<E, F, T>(obj: &E, name: &str, f: F)
+    -> Closure<dyn std::ops::FnMut(T)>
     where E: JsCast + Clone + std::fmt::Debug,
           F: FnMut(T) + 'static,
           T: FromWasmAbi + 'static
@@ -321,8 +245,10 @@ fn set_event_cb<E, F, T>(obj: &E, name: &str, f: F) -> Closure<dyn std::ops::FnM
 impl Board {
     fn new(doc: &Document, game_div: &HtmlElement) -> JsResult<Board> {
         // Add an SVG
-        let svg = doc.create_element_ns(Some("http://www.w3.org/2000/svg"), "svg")?
+        let svg = doc.create_element_ns(
+                Some("http://www.w3.org/2000/svg"), "svg")?
             .dyn_into::<SvgGraphicsElement>()?;
+
         svg.set_id("game");
         svg.set_attribute("width", "100")?;
         svg.set_attribute("hight", "100")?;
@@ -391,7 +317,7 @@ impl Board {
         (x, y)
     }
 
-    fn on_pointer_down(&mut self, evt: PointerEvent) -> JsResult<()> {
+    fn on_pointer_down(&mut self, evt: PointerEvent) -> JsError {
         evt.prevent_default();
         let mut target = evt.target()
             .unwrap()
@@ -434,7 +360,7 @@ impl Board {
         Ok(())
     }
 
-    fn on_pointer_move(&self, evt: PointerEvent) -> JsResult<()> {
+    fn on_pointer_move(&self, evt: PointerEvent) -> JsError {
         evt.prevent_default();
         if let DragState::Dragging{orig: _, target, shadow, offset} = &self.drag {
             let (mx, my) = self.mouse_pos(&evt);
@@ -461,7 +387,7 @@ impl Board {
         Ok(())
     }
 
-    fn on_pointer_up(&mut self, evt: PointerEvent) -> JsResult<()> {
+    fn on_pointer_up(&mut self, evt: PointerEvent) -> JsError {
         console_log!("pointer up {:?}", evt);
         evt.prevent_default();
         if let DragState::Dragging{target, shadow, offset, orig} = &self.drag {
@@ -476,7 +402,6 @@ impl Board {
             target.remove_event_listener_with_callback("pointerup",
                     self.pointer_up_cb.as_ref().unchecked_ref())
                 .expect("Could not remove event listener");
-            let (x, y) = Self::get_transform(&target);
             web_sys::window()
                 .expect("no global `window` exists")
                 .request_animation_frame(self.anim_cb.as_ref()
@@ -497,7 +422,7 @@ impl Board {
         Ok(())
     }
 
-    fn on_anim(&mut self, t: f64) -> JsResult<()> {
+    fn on_anim(&mut self, t: f64) -> JsError {
         if let DragState::DropToGrid{target, start, end, t0} = &mut self.drag {
             let anim_length = 10.0;
             let mut frac = ((t - *t0) / anim_length) as f32;
@@ -526,7 +451,7 @@ impl Board {
         self.doc.create_element_ns(Some("http://www.w3.org/2000/svg"), t)
     }
 
-    fn add_hand(&mut self, p: Piece) -> JsResult<()> {
+    fn add_hand(&mut self, p: Piece) -> JsError {
         self.hand.push(p);
         let g = self.new_piece(p)?;
         g.class_list().add_1("piece")?;
@@ -629,7 +554,7 @@ impl Board {
         Ok(g)
     }
 
-    fn add_piece(&mut self, p: Piece, x: i32, y: i32) -> JsResult<()> {
+    fn add_piece(&mut self, p: Piece, x: i32, y: i32) -> JsError {
         self.grid.insert((x, y), p);
 
         let g = self.new_piece(p)?;
@@ -643,15 +568,15 @@ impl Board {
 ////////////////////////////////////////////////////////////////////////////////
 
 impl Connecting {
-    fn on_connected(self) -> JsResult<State> {
+    fn on_connected(self) -> JsResult<CreateOrJoin> {
         // Remove the "Connecting..." message
         self.base.clear_main_div()?;
 
         // Insta-join a room
-        self.base.send(ClientMessage::CreateRoom("Matt".to_string()));
+        self.base.send(ClientMessage::CreateRoom("Matt".to_string()))?;
 
         // Return the new state
-        Ok(State::CreateOrJoin(CreateOrJoin::new(self.base)?))
+        CreateOrJoin::new(self.base)
     }
 }
 
@@ -684,7 +609,8 @@ impl CreateOrJoin {
         p.append_child(&room_input)?;
         let room_invalid_cb = set_event_cb(&room_input, "invalid",
             move |_: Event| {
-                HANDLE.lock().unwrap().on_room_name_invalid();
+                HANDLE.lock().unwrap().on_room_name_invalid()
+                    .expect("Error in callback");
             });
         form.append_child(&p)?;
 
@@ -699,11 +625,13 @@ impl CreateOrJoin {
 
         base.main_div.append_child(&form)?;
         let input_cb = set_event_cb(&room_input, "input", move |_: Event| {
-            HANDLE.lock().unwrap().on_join_inputs_changed();
+            HANDLE.lock().unwrap().on_join_inputs_changed()
+                .expect("Error in callback");
         });
         let submit_cb = set_event_cb(&form, "submit", move |e: Event| {
             e.prevent_default();
-            HANDLE.lock().unwrap().on_join_button();
+            HANDLE.lock().unwrap().on_join_button()
+                .expect("Error in callback");
         });
 
         let err_div = base.doc.create_element("div")?
@@ -737,21 +665,23 @@ impl CreateOrJoin {
         })
     }
 
-    fn on_unknown_room(&self, room: &str) {
+    fn on_unknown_room(&self, room: &str) -> JsError {
         let err = format!("Could not find room '{}'", room);
         self.err_span.set_text_content(Some(&err));
         self.err_div.set_hidden(false);
         self.play_button.set_disabled(false);
+        Ok(())
     }
 
     fn on_joined_room(self, room_name: &str, players: &[(String, u32, bool)],
                       active_players: usize, board: &HashMap<(i32, i32), Piece>,
-                      pieces: &[Piece]) -> JsResult<State> {
+                      pieces: &[Piece]) -> JsResult<Playing>
+    {
         self.base.clear_main_div()?;
-        Ok(State::Playing(Playing::new(self.base, room_name, players, active_players, board, pieces)?))
+        Playing::new(self.base, room_name, players, active_players, board, pieces)
     }
 
-    fn on_join_button(&self) {
+    fn on_join_button(&self) -> JsError {
         self.play_button.set_disabled(true);
         let name = self.name_input.value();
         let room = self.room_input.value();
@@ -760,10 +690,10 @@ impl CreateOrJoin {
         } else {
             ClientMessage::JoinRoom(name, room)
         };
-        self.base.send(msg);
+        self.base.send(msg)
     }
 
-    fn on_join_inputs_changed(&self) {
+    fn on_join_inputs_changed(&self) -> JsError {
         self.play_button.set_text_content(Some(
             if self.room_input.value().is_empty() {
                 "Create new room"
@@ -771,10 +701,12 @@ impl CreateOrJoin {
                 "Join existing room"
             }));
         self.room_input.set_custom_validity("");
+        Ok(())
     }
 
-    fn on_room_name_invalid(&self) {
+    fn on_room_name_invalid(&self) -> JsError {
         self.room_input.set_custom_validity("three lowercase words");
+        Ok(())
     }
 }
 
@@ -858,7 +790,8 @@ impl Playing {
             move |e: KeyboardEvent| {
                 if e.key_code() == 13 { // Enter key
                     e.prevent_default();
-                    HANDLE.lock().unwrap().on_send_chat();
+                    HANDLE.lock().unwrap().on_send_chat()
+                        .expect("Error in callback");
                 }
             });
 
@@ -894,7 +827,7 @@ impl Playing {
         Ok(out)
     }
 
-    fn on_chat(&self, from: &str, msg: &str) -> JsResult<()>
+    fn on_chat(&self, from: &str, msg: &str) -> JsError
     {
         let p = self.base.doc.create_element("p")?;
         p.set_class_name("msg");
@@ -916,7 +849,7 @@ impl Playing {
         Ok(())
     }
 
-    fn on_information(&self, msg: &str) -> JsResult<()>
+    fn on_information(&self, msg: &str) -> JsError
     {
         let p = self.base.doc.create_element("p")?;
         p.set_class_name("msg");
@@ -931,7 +864,7 @@ impl Playing {
 
     fn add_player_row(&self, name: String, score: usize,
                       active: bool, connected: bool)
-        -> JsResult<()>
+        -> JsError
     {
         let tr = self.base.doc.create_element("tr")?;
         tr.set_class_name("player-row");
@@ -962,31 +895,31 @@ impl Playing {
         Ok(())
     }
 
-    fn on_send_chat(&self) {
+    fn on_send_chat(&self) -> JsError {
         let i = self.chat_input.value();
         if !i.is_empty() {
             self.chat_input.set_value("");
-            self.base.send(ClientMessage::Chat(i));
+            self.base.send(ClientMessage::Chat(i))
+        } else {
+            Ok(())
         }
     }
 
-    fn on_new_player(&self, name: &str) -> JsResult<()> {
+    fn on_new_player(&self, name: &str) -> JsError {
         // Append a player to the bottom of the scores list
         self.add_player_row(name.to_string(), 0, false, true)?;
-        self.on_information(&format!("{} joined the room", name))?;
-        Ok(())
+        self.on_information(&format!("{} joined the room", name))
     }
 
-    fn on_player_disconnected(&self, index: usize) -> JsResult<()> {
+    fn on_player_disconnected(&self, index: usize) -> JsError {
         let c = self.score_table.child_nodes()
             .item((index + 1) as u32)
             .unwrap()
             .dyn_into::<HtmlElement>()?;
-        c.class_list().add_1("disconnected")?;
-        Ok(())
+        c.class_list().add_1("disconnected")
     }
 
-    fn on_player_turn(&mut self, active_player: usize) -> JsResult<()> {
+    fn on_player_turn(&mut self, active_player: usize) -> JsError {
         let children = self.score_table.child_nodes();
         children
             .item((self.active_player + 1) as u32)
@@ -1001,23 +934,22 @@ impl Playing {
             .unwrap()
             .dyn_into::<HtmlElement>()?
             .class_list()
-            .add_1("active")?;
-        Ok(())
+            .add_1("active")
     }
 
-    fn on_anim(&mut self, t: f64) -> JsResult<()> {
+    fn on_anim(&mut self, t: f64) -> JsError {
         self.board.on_anim(t)
     }
 
-    fn on_pointer_down(&mut self, evt: PointerEvent) -> JsResult<()> {
+    fn on_pointer_down(&mut self, evt: PointerEvent) -> JsError {
         self.board.on_pointer_down(evt)
     }
 
-    fn on_pointer_move(&mut self, evt: PointerEvent) -> JsResult<()> {
+    fn on_pointer_move(&mut self, evt: PointerEvent) -> JsError {
         self.board.on_pointer_move(evt)
     }
 
-    fn on_pointer_up(&mut self, evt: PointerEvent) -> JsResult<()> {
+    fn on_pointer_up(&mut self, evt: PointerEvent) -> JsError {
         self.board.on_pointer_up(evt)
     }
 }
@@ -1025,22 +957,21 @@ impl Playing {
 ////////////////////////////////////////////////////////////////////////////////
 
 
-fn on_message(msg: ServerMessage) -> JsResult<()> {
+fn on_message(msg: ServerMessage) -> JsError {
     use ServerMessage::*;
     console_log!("Got message {:?}", msg);
 
     let mut state = HANDLE.lock().unwrap();
 
     match msg {
-        UnknownRoom(name) => state.on_unknown_room(&name),
+        UnknownRoom(name) => state.on_unknown_room(&name)?,
         JoinedRoom{room_name, players, active_player, board, pieces} =>
             state.on_joined_room(&room_name, &players, active_player, &board, &pieces)?,
         Chat{from, message} => state.on_chat(&from, &message)?,
         Information(message) => state.on_information(&message)?,
         NewPlayer(name) => state.on_new_player(&name)?,
-        //PlayerDisconnected(index) => state.on_player_disconnected(index)?,
-        //PlayerTurn(active_player) => state.on_player_turn(active_player)?,
-        _ => panic!(),
+        PlayerDisconnected(index) => state.on_player_disconnected(index)?,
+        PlayerTurn(active_player) => state.on_player_turn(active_player)?,
     }
 
     Ok(())
@@ -1050,8 +981,55 @@ fn on_message(msg: ServerMessage) -> JsResult<()> {
 
 // Called when the wasm module is instantiated
 #[wasm_bindgen(start)]
-pub fn main() -> JsResult<()> {
+pub fn main() -> JsError {
     console_error_panic_hook::set_once();
-    HANDLE.lock().unwrap();
+
+    let doc = web_sys::window()
+        .expect("no global `window` exists")
+        .document()
+        .expect("should have a document on window");
+    let body = doc.body().expect("document should have a body");
+
+    // Manufacture the element we're gonna append
+    let val = doc.create_element("p")?;
+    val.set_text_content(Some("Connecting..."));
+
+    let main_div = doc.create_element("div")?
+        .dyn_into::<HtmlElement>()?;
+    main_div.set_id("main");
+    main_div.append_child(&val)?;
+    body.insert_adjacent_element("afterbegin", &main_div)?;
+
+    let hostname = doc.location().unwrap().hostname()?;
+    let ws = WebSocket::new(&format!("ws://{}:8080", hostname))?;
+
+    let open_cb = set_event_cb(&ws, "open", move |_: JsValue| {
+        HANDLE.lock().unwrap()
+            .on_connected()
+            .expect("Failed state transition");
+    });
+
+    let message_cb = set_event_cb(&ws, "message", move |e: MessageEvent| {
+        let msg = serde_json::from_str(&e.data().as_string().unwrap())
+            .expect("Failed to decode message");
+        on_message(msg)
+            .expect("Failed to handle message");
+    });
+
+    let close_cb = set_event_cb(&ws, "close", move |_: Event| {
+        console_log!("Socket closed");
+    });
+
+    let base = Base {
+        doc,
+        main_div,
+        ws,
+
+        _open_cb: open_cb,
+        _message_cb: message_cb,
+        _close_cb: close_cb,
+    };
+    *HANDLE.lock().unwrap() = State::Connecting(Connecting { base });
+
     Ok(())
 }
