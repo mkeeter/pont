@@ -27,6 +27,8 @@ macro_rules! console_log {
     ($($t:tt)*) => (web_sys::console::log_1(&format!($($t)*).into()))
 }
 
+type JsResult<T> = Result<T, JsValue>;
+
 ////////////////////////////////////////////////////////////////////////////////
 
 type Pos = (f32, f32);
@@ -46,7 +48,7 @@ enum DragState {
     },
 }
 
-struct Board {
+pub struct Board {
     doc: Document,
     svg: SvgGraphicsElement,
 
@@ -62,20 +64,34 @@ struct Board {
     anim_cb: Closure<dyn FnMut(f64)>,
 }
 
-struct PlayingState {
-    chat_div: HtmlElement,
-    chat_input: HtmlInputElement,
-    score_table: HtmlElement,
-    player_index: usize,
-    active_player: usize,
+////////////////////////////////////////////////////////////////////////////////
 
-    board: Board,
-
-    // Callback is owned so that it lives as long as the state
-    _keyup_cb: Closure<dyn FnMut(KeyboardEvent)>,
+pub struct Base {
+    doc: Document,
+    main_div: HtmlElement,
+    ws: WebSocket,
 }
 
-struct CreateOrJoinState {
+impl Base {
+    fn clear_main_div(&self) -> JsResult<()> {
+        while let Some(c) = self.main_div.first_child() {
+            self.main_div.remove_child(&c)?;
+        }
+        Ok(())
+    }
+
+    fn send(&self, msg: ClientMessage) {
+        let encoded = serde_json::to_string(&msg)
+            .expect("Failed to encode");
+        self.ws.send_with_str(&encoded)
+            .expect("Could not send message");
+    }
+}
+
+struct Connecting { base: Base }
+struct CreateOrJoin {
+    base: Base,
+
     name_input: HtmlInputElement,
     room_input: HtmlInputElement,
     play_button: HtmlButtonElement,
@@ -88,23 +104,139 @@ struct CreateOrJoinState {
     _submit_cb: Closure<dyn FnMut(Event)>,
 }
 
+struct Playing {
+    base: Base,
+
+    chat_div: HtmlElement,
+    chat_input: HtmlInputElement,
+    score_table: HtmlElement,
+    player_index: usize,
+    active_player: usize,
+
+    board: Board,
+
+    // Callback is owned so that it lives as long as the state
+    _keyup_cb: Closure<dyn FnMut(KeyboardEvent)>,
+}
+
 enum State {
-    Connecting,
-    CreateOrJoin(CreateOrJoinState),
-    Playing(PlayingState),
+    Connecting(Connecting),
+    CreateOrJoin(CreateOrJoin),
+    Playing(Playing),
+    Empty,
 }
 
-struct Handle {
-    doc: Document,
-    main_div: HtmlElement,
-    ws: WebSocket,
-    state: State,
+impl State {
+    fn on_connected(&mut self) -> JsResult<()> {
+        let s = std::mem::replace(self, State::Empty);
+        match s {
+            State::Connecting(c) => *self = c.on_connected()?,
+            _ => panic!("Invalid state"),
+        }
+        Ok(())
+    }
+
+    fn on_joined_room(&mut self, room_name: &str, players: &[(String, u32, bool)],
+                      active_players: usize, board: &HashMap<(i32, i32), Piece>,
+                      pieces: &[Piece]) -> JsResult<()> {
+        let s = std::mem::replace(self, State::Empty);
+        match s {
+            State::CreateOrJoin(c) => *self = c.on_joined_room(
+                room_name, players, active_players, board, pieces)?,
+            _ => panic!("Invalid state"),
+        }
+        Ok(())
+    }
+
+    fn on_pointer_down(&mut self, evt: PointerEvent) -> JsResult<()> {
+        match self {
+            State::Playing(p) => p.on_pointer_down(evt),
+            _ => panic!("Invalid state"),
+        }
+    }
+
+    fn on_pointer_up(&mut self, evt: PointerEvent) -> JsResult<()> {
+        match self {
+            State::Playing(p) => p.on_pointer_up(evt),
+            _ => panic!("Invalid state"),
+        }
+    }
+
+    fn on_pointer_move(&mut self, evt: PointerEvent) -> JsResult<()> {
+        match self {
+            State::Playing(p) => p.on_pointer_move(evt),
+            _ => panic!("Invalid state"),
+        }
+    }
+
+    fn on_anim(&mut self, t: f64) -> JsResult<()> {
+        match self {
+            State::Playing(p) => p.on_anim(t),
+            _ => panic!("Invalid state"),
+        }
+    }
+
+    fn on_room_name_invalid(&self) {
+        match self {
+            State::CreateOrJoin(p) => p.on_room_name_invalid(),
+            _ => panic!("Invalid state"),
+        }
+    }
+
+    fn on_join_inputs_changed(&self) {
+        match self {
+            State::CreateOrJoin(p) => p.on_join_inputs_changed(),
+            _ => panic!("Invalid state"),
+        }
+    }
+
+    fn on_join_button(&self) {
+        match self {
+            State::CreateOrJoin(p) => p.on_join_button(),
+            _ => panic!("Invalid state"),
+        }
+    }
+
+    fn on_chat(&self, from: &str, msg: &str) -> JsResult<()> {
+        match self {
+            State::Playing(p) => p.on_chat(from, msg),
+            _ => panic!("Invalid state"),
+        }
+    }
+
+    fn on_send_chat(&self) {
+        match self {
+            State::Playing(p) => p.on_send_chat(),
+            _ => panic!("Invalid state"),
+        }
+    }
+
+    fn on_unknown_room(&self, room: &str) {
+        match self {
+            State::CreateOrJoin(p) => p.on_unknown_room(room),
+            _ => panic!("Invalid state"),
+        }
+    }
+
+    fn on_information(&self, msg: &str) -> JsResult<()> {
+        match self {
+            State::Playing(p) => p.on_information(msg),
+            _ => panic!("Invalid state"),
+        }
+    }
+
+    fn on_new_player(&self, name: &str) -> JsResult<()> {
+        match self {
+            State::Playing(p) => p.on_new_player(name),
+            _ => panic!("Invalid state"),
+        }
+    }
 }
 
-unsafe impl Send for Handle { /* YOLO */}
+unsafe impl Send for State { /* YOLO */}
 
 lazy_static::lazy_static! {
-    static ref HANDLE: Arc<Mutex<Handle>> = {
+    static ref HANDLE: Arc<Mutex<State>> = {
         let doc = web_sys::window()
             .expect("no global `window` exists")
             .document()
@@ -131,12 +263,29 @@ lazy_static::lazy_static! {
         let ws = WebSocket::new(&format!("ws://{}:8080", hostname))
             .expect("Could not create websocket");
 
-        Arc::new(Mutex::new(Handle {
+        set_event_cb(&ws, "open", move |_: JsValue| {
+            let mut h = HANDLE.lock().unwrap()
+                .on_connected()
+                .expect("Failed state transition");
+        }).forget();
+
+        set_event_cb(&ws, "message", move |e: MessageEvent| {
+            let msg = serde_json::from_str(&e.data().as_string().unwrap())
+                .expect("Failed to decode message");
+            on_message(msg)
+                .expect("Failed to handle message");
+        }).forget();
+
+        set_event_cb(&ws, "close", move |_: Event| {
+            console_log!("Socket closed");
+        }).forget();
+
+        let base = Base {
             doc,
             main_div,
             ws: ws,
-            state: State::Connecting,
-        }))
+        };
+        Arc::new(Mutex::new(State::Connecting(Connecting { base })))
     };
 }
 
@@ -170,7 +319,7 @@ fn set_event_cb<E, F, T>(obj: &E, name: &str, f: F) -> Closure<dyn std::ops::FnM
 ////////////////////////////////////////////////////////////////////////////////
 
 impl Board {
-    fn new(doc: &Document, game_div: &HtmlElement) -> Result<Board, JsValue> {
+    fn new(doc: &Document, game_div: &HtmlElement) -> JsResult<Board> {
         // Add an SVG
         let svg = doc.create_element_ns(Some("http://www.w3.org/2000/svg"), "svg")?
             .dyn_into::<SvgGraphicsElement>()?;
@@ -182,22 +331,22 @@ impl Board {
 
         let pointer_down_cb = build_cb(move |evt: PointerEvent| {
             HANDLE.lock().unwrap()
-                .canvas_pointer_down(evt)
+                .on_pointer_down(evt)
                 .expect("Failed to pointer_down event");
         });
         let pointer_move_cb = build_cb(move |evt: PointerEvent| {
             HANDLE.lock().unwrap()
-                .canvas_pointer_move(evt)
+                .on_pointer_move(evt)
                 .expect("Failed to pointer_down event");
         });
         let pointer_up_cb = build_cb(move |evt: PointerEvent| {
             HANDLE.lock().unwrap()
-                .canvas_pointer_up(evt)
+                .on_pointer_up(evt)
                 .expect("Failed to pointer_down event");
         });
         let anim_cb = build_cb(move |evt: f64| {
             HANDLE.lock().unwrap()
-                .canvas_anim(evt)
+                .on_anim(evt)
                 .expect("Failed to anim event");
         });
 
@@ -242,7 +391,7 @@ impl Board {
         (x, y)
     }
 
-    fn pointer_down(&mut self, evt: PointerEvent) -> Result<(), JsValue> {
+    fn on_pointer_down(&mut self, evt: PointerEvent) -> JsResult<()> {
         evt.prevent_default();
         let mut target = evt.target()
             .unwrap()
@@ -285,7 +434,7 @@ impl Board {
         Ok(())
     }
 
-    fn pointer_move(&self, evt: PointerEvent) -> Result<(), JsValue> {
+    fn on_pointer_move(&self, evt: PointerEvent) -> JsResult<()> {
         evt.prevent_default();
         if let DragState::Dragging{orig: _, target, shadow, offset} = &self.drag {
             let (mx, my) = self.mouse_pos(&evt);
@@ -312,7 +461,7 @@ impl Board {
         Ok(())
     }
 
-    fn pointer_up(&mut self, evt: PointerEvent) -> Result<(), JsValue> {
+    fn on_pointer_up(&mut self, evt: PointerEvent) -> JsResult<()> {
         console_log!("pointer up {:?}", evt);
         evt.prevent_default();
         if let DragState::Dragging{target, shadow, offset, orig} = &self.drag {
@@ -348,7 +497,7 @@ impl Board {
         Ok(())
     }
 
-    fn anim(&mut self, t: f64) -> Result<(), JsValue> {
+    fn on_anim(&mut self, t: f64) -> JsResult<()> {
         if let DragState::DropToGrid{target, start, end, t0} = &mut self.drag {
             let anim_length = 10.0;
             let mut frac = ((t - *t0) / anim_length) as f32;
@@ -373,11 +522,11 @@ impl Board {
         Ok(())
     }
 
-    fn create(&self, t: &str) -> Result<Element, JsValue> {
+    fn create(&self, t: &str) -> JsResult<Element> {
         self.doc.create_element_ns(Some("http://www.w3.org/2000/svg"), t)
     }
 
-    fn add_hand(&mut self, p: Piece) -> Result<(), JsValue> {
+    fn add_hand(&mut self, p: Piece) -> JsResult<()> {
         self.hand.push(p);
         let g = self.new_piece(p)?;
         g.class_list().add_1("piece")?;
@@ -394,7 +543,7 @@ impl Board {
         Ok(())
     }
 
-    fn new_piece(&self, p: Piece) -> Result<Element, JsValue> {
+    fn new_piece(&self, p: Piece) -> JsResult<Element> {
         let g = self.create("g")?;
         let r = self.create("rect")?;
         r.class_list().add_1("tile")?;
@@ -480,7 +629,7 @@ impl Board {
         Ok(g)
     }
 
-    fn add_piece(&mut self, p: Piece, x: i32, y: i32) -> Result<(), JsValue> {
+    fn add_piece(&mut self, p: Piece, x: i32, y: i32) -> JsResult<()> {
         self.grid.insert((x, y), p);
 
         let g = self.new_piece(p)?;
@@ -493,17 +642,30 @@ impl Board {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-impl CreateOrJoinState {
-    fn new(doc: &Document, main_div: &HtmlElement) -> Result<State, JsValue> {
+impl Connecting {
+    fn on_connected(self) -> JsResult<State> {
+        // Remove the "Connecting..." message
+        self.base.clear_main_div()?;
+
+        // Insta-join a room
+        self.base.send(ClientMessage::CreateRoom("Matt".to_string()));
+
+        // Return the new state
+        Ok(State::CreateOrJoin(CreateOrJoin::new(self.base)?))
+    }
+}
+
+impl CreateOrJoin {
+    fn new(base: Base) -> JsResult<CreateOrJoin> {
         // When any of the text fields change, check to see whether
         // the "Join" button should be enabled
-        let form = doc.create_element("form")?;
+        let form = base.doc.create_element("form")?;
 
-        let p = doc.create_element("p")?;
-        let b = doc.create_element("b")?;
+        let p = base.doc.create_element("p")?;
+        let b = base.doc.create_element("b")?;
         b.set_text_content(Some("Name:"));
         p.append_child(&b)?;
-        let name_input = doc.create_element("input")?
+        let name_input = base.doc.create_element("input")?
             .dyn_into::<HtmlInputElement>()?;
         name_input.set_id("name_input");
         name_input.set_attribute("placeholder", "John Smith")?;
@@ -511,23 +673,23 @@ impl CreateOrJoinState {
         p.append_child(&name_input)?;
         form.append_child(&p)?;
 
-        let p = doc.create_element("p")?;
-        let b = doc.create_element("b")?;
+        let p = base.doc.create_element("p")?;
+        let b = base.doc.create_element("b")?;
         b.set_text_content(Some("Room:"));
         p.append_child(&b)?;
-        let room_input = doc.create_element("input")?
+        let room_input = base.doc.create_element("input")?
             .dyn_into::<HtmlInputElement>()?;
         room_input.set_id("room_input");
         room_input.set_pattern("^[a-z]+ [a-z]+ [a-z]+$");
         p.append_child(&room_input)?;
         let room_invalid_cb = set_event_cb(&room_input, "invalid",
             move |_: Event| {
-                HANDLE.lock().unwrap().set_room_invalid();
+                HANDLE.lock().unwrap().on_room_name_invalid();
             });
         form.append_child(&p)?;
 
-        let p = doc.create_element("p")?;
-        let play_button = doc.create_element("button")?
+        let p = base.doc.create_element("p")?;
+        let play_button = base.doc.create_element("button")?
             .dyn_into::<HtmlButtonElement>()?;
         play_button.set_text_content(Some("Create new room"));
         play_button.set_id("play_button");
@@ -535,23 +697,23 @@ impl CreateOrJoinState {
         p.append_child(&play_button)?;
         form.append_child(&p)?;
 
-        main_div.append_child(&form)?;
+        base.main_div.append_child(&form)?;
         let input_cb = set_event_cb(&room_input, "input", move |_: Event| {
-            HANDLE.lock().unwrap().check_join_inputs();
+            HANDLE.lock().unwrap().on_join_inputs_changed();
         });
         let submit_cb = set_event_cb(&form, "submit", move |e: Event| {
             e.prevent_default();
-            HANDLE.lock().unwrap().try_join();
+            HANDLE.lock().unwrap().on_join_button();
         });
 
-        let err_div = doc.create_element("div")?
+        let err_div = base.doc.create_element("div")?
             .dyn_into::<HtmlElement>()?;
         err_div.set_id("error");
 
-        let i = doc.create_element("i")?;
+        let i = base.doc.create_element("i")?;
         i.set_class_name("fas fa-exclamation-triangle");
 
-        let err_span = doc.create_element("span")?
+        let err_span = base.doc.create_element("span")?
             .dyn_into::<HtmlElement>()?;
         err_span.set_id("err_span");
 
@@ -559,9 +721,10 @@ impl CreateOrJoinState {
         err_div.append_child(&err_span)?;
         err_div.set_hidden(true);
 
-        main_div.append_child(&err_div)?;
+        base.main_div.append_child(&err_div)?;
 
-        Ok(State::CreateOrJoin(CreateOrJoinState {
+        Ok(CreateOrJoin {
+            base,
             name_input,
             room_input,
             play_button,
@@ -571,53 +734,89 @@ impl CreateOrJoinState {
             _input_cb: input_cb,
             _submit_cb: submit_cb,
             _room_invalid_cb: room_invalid_cb,
-        }))
+        })
+    }
+
+    fn on_unknown_room(&self, room: &str) {
+        let err = format!("Could not find room '{}'", room);
+        self.err_span.set_text_content(Some(&err));
+        self.err_div.set_hidden(false);
+        self.play_button.set_disabled(false);
+    }
+
+    fn on_joined_room(self, room_name: &str, players: &[(String, u32, bool)],
+                      active_players: usize, board: &HashMap<(i32, i32), Piece>,
+                      pieces: &[Piece]) -> JsResult<State> {
+        self.base.clear_main_div()?;
+        Ok(State::Playing(Playing::new(self.base, room_name, players, active_players, board, pieces)?))
+    }
+
+    fn on_join_button(&self) {
+        self.play_button.set_disabled(true);
+        let name = self.name_input.value();
+        let room = self.room_input.value();
+        let msg = if room.is_empty() {
+            ClientMessage::CreateRoom(name)
+        } else {
+            ClientMessage::JoinRoom(name, room)
+        };
+        self.base.send(msg);
+    }
+
+    fn on_join_inputs_changed(&self) {
+        self.play_button.set_text_content(Some(
+            if self.room_input.value().is_empty() {
+                "Create new room"
+            } else {
+                "Join existing room"
+            }));
+        self.room_input.set_custom_validity("");
+    }
+
+    fn on_room_name_invalid(&self) {
+        self.room_input.set_custom_validity("three lowercase words");
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-impl PlayingState {
-    fn new(doc: &Document, main_div: &HtmlElement,
-           room_name: &str,
-           players: &[(String, u32, bool)],
-           active_player: usize,
-           in_board: HashMap<(i32, i32), Piece>,
-           pieces: Vec<Piece>)
-        -> Result<State, JsValue>
+impl Playing {
+    fn new(base: Base, room_name: &str, players: &[(String, u32, bool)],
+           active_player: usize, in_board: &HashMap<(i32, i32), Piece>,
+           pieces: &[Piece]) -> JsResult<Playing>
     {
         let player_index = players.len() - 1;
 
         // The title lists the room name
-        let p = doc.create_element("p")?;
-        let b = doc.create_element("b")?;
+        let p = base.doc.create_element("p")?;
+        let b = base.doc.create_element("b")?;
         b.set_text_content(Some("Room: "));
-        let s = doc.create_element("span")?;
-        s.set_text_content(Some(room_name));
+        let s = base.doc.create_element("span")?;
+        s.set_text_content(Some(&room_name));
         p.append_child(&b)?;
         p.append_child(&s)?;
-        main_div.append_child(&p)?;
+        base.main_div.append_child(&p)?;
 
         // This div is styled as either 1-3 columns based on screen size
-        let game_div = doc.create_element("div")?
+        let game_div = base.doc.create_element("div")?
             .dyn_into::<HtmlElement>()?;
         game_div.set_id("game");
-        main_div.append_child(&game_div)?;
+        base.main_div.append_child(&game_div)?;
 
-        let board = Board::new(doc, &game_div)?;
+        let board = Board::new(&base.doc, &game_div)?;
 
-        let score_col = doc.create_element("div")?
+        let score_col = base.doc.create_element("div")?
             .dyn_into::<HtmlElement>()?;
-        let score_table = doc.create_element("table")?
+        let score_table = base.doc.create_element("table")?
             .dyn_into::<HtmlElement>()?;
         score_table.set_id("scores");
-        let tr = doc.create_element("tr")?;
-        let th = doc.create_element("th")?
+        let tr = base.doc.create_element("tr")?;
+        let th = base.doc.create_element("th")?
             .dyn_into::<HtmlTableCellElement>()?;
         th.set_col_span(2);
         th.set_text_content(Some("Player"));
         tr.append_child(&th)?;
-        let th = doc.create_element("th")?;
+        let th = base.doc.create_element("th")?;
         th.set_text_content(Some("Score"));
         tr.append_child(&th)?;
         score_table.append_child(&tr)?;
@@ -625,26 +824,26 @@ impl PlayingState {
         game_div.append_child(&score_col)?;
 
         // Create the column for chatting
-        let chat_col = doc.create_element("div")?
+        let chat_col = base.doc.create_element("div")?
             .dyn_into::<HtmlElement>()?;
         chat_col.set_id("chat_col");
-        let chat_div = doc.create_element("div")?
+        let chat_div = base.doc.create_element("div")?
             .dyn_into::<HtmlElement>()?;
         chat_div.set_id("chat");
         chat_col.append_child(&chat_div)?;
 
         // Name + text input
-        let chat_input_div = doc.create_element("div")?;
+        let chat_input_div = base.doc.create_element("div")?;
         chat_input_div.set_id("chat_input");
 
-        let chat_name_div = doc.create_element("p")?;
+        let chat_name_div = base.doc.create_element("p")?;
         chat_name_div.set_id("chat_name");
-        let b = doc.create_element("b")?;
+        let b = base.doc.create_element("b")?;
         b.set_text_content(Some(&format!("{}:", players[player_index].0)));
         chat_name_div.append_child(&b)?;
         chat_input_div.append_child(&chat_name_div)?;
 
-        let chat_input = doc.create_element("input")?
+        let chat_input = base.doc.create_element("input")?
             .dyn_into::<HtmlInputElement>()?;
         chat_input.set_id("chat_input");
         chat_input.set_attribute("placeholder", "Send message...")?;
@@ -659,31 +858,32 @@ impl PlayingState {
             move |e: KeyboardEvent| {
                 if e.key_code() == 13 { // Enter key
                     e.prevent_default();
-                    HANDLE.lock().unwrap().send_chat();
+                    HANDLE.lock().unwrap().on_send_chat();
                 }
             });
 
-        let mut out = PlayingState {
+        let mut out = Playing {
+            base,
             board,
 
             chat_input,
             chat_div,
             score_table,
             player_index,
-            active_player,
+            active_player: active_player,
 
             _keyup_cb: keyup_cb,
         };
 
-        for ((x, y), p) in in_board.into_iter() {
-            out.board.add_piece(p, x, y)?;
+        for ((x, y), p) in in_board.iter() {
+            out.board.add_piece(*p, *x, *y)?;
         }
         for p in pieces.into_iter() {
-            out.board.add_hand(p)?;
+            out.board.add_hand(*p)?;
         }
 
         for (i, (name, score, connected)) in players.iter().enumerate() {
-            out.add_player_row(doc,
+            out.add_player_row(
                 if i == player_index {
                     format!("{} (you)", name)
                 } else {
@@ -691,24 +891,23 @@ impl PlayingState {
                 },
                 *score as usize, i == active_player, *connected)?;
         }
-        Ok(State::Playing(out))
+        Ok(out)
     }
 
-    fn append_chat_message(&self, doc: &Document, from: &str, msg: &str)
-        -> Result<(), JsValue>
+    fn on_chat(&self, from: &str, msg: &str) -> JsResult<()>
     {
-        let p = doc.create_element("p")?;
+        let p = self.base.doc.create_element("p")?;
         p.set_class_name("msg");
 
-        let b =doc.create_element("b")?;
+        let b = self.base.doc.create_element("b")?;
         b.set_text_content(Some(from));
         p.append_child(&b)?;
 
-        let s = doc.create_element("b")?;
+        let s =  self.base.doc.create_element("b")?;
         s.set_text_content(Some(":"));
         p.append_child(&s)?;
 
-        let s = doc.create_element("span")?;
+        let s =  self.base.doc.create_element("span")?;
         s.set_text_content(Some(msg));
         p.append_child(&s)?;
 
@@ -717,13 +916,12 @@ impl PlayingState {
         Ok(())
     }
 
-    fn append_info_message(&self, doc: &Document, msg: &str)
-        -> Result<(), JsValue>
+    fn on_information(&self, msg: &str) -> JsResult<()>
     {
-        let p = doc.create_element("p")?;
+        let p = self.base.doc.create_element("p")?;
         p.set_class_name("msg");
 
-        let i = doc.create_element("i")?;
+        let i = self.base.doc.create_element("i")?;
         i.set_text_content(Some(msg));
         p.append_child(&i)?;
         self.chat_div.append_child(&p)?;
@@ -731,28 +929,27 @@ impl PlayingState {
         Ok(())
     }
 
-    fn add_player_row(&self, doc: &Document,
-                      name: String, score: usize,
+    fn add_player_row(&self, name: String, score: usize,
                       active: bool, connected: bool)
-        -> Result<(), JsValue>
+        -> JsResult<()>
     {
-        let tr = doc.create_element("tr")?;
+        let tr = self.base.doc.create_element("tr")?;
         tr.set_class_name("player-row");
         if active {
             tr.class_list().add_1("active")?;
         }
 
-        let td = doc.create_element("td")?;
-        let i = doc.create_element("i")?;
+        let td = self.base.doc.create_element("td")?;
+        let i = self.base.doc.create_element("i")?;
         i.set_class_name("fas fa-caret-right");
         td.append_child(&i)?;
         tr.append_child(&td)?;
 
-        let td = doc.create_element("td")?;
+        let td = self.base.doc.create_element("td")?;
         td.set_text_content(Some(&name));
         tr.append_child(&td)?;
 
-        let td = doc.create_element("td")?;
+        let td = self.base.doc.create_element("td")?;
         td.set_text_content(Some(&format!("{}", score)));
         tr.append_child(&td)?;
 
@@ -764,260 +961,97 @@ impl PlayingState {
 
         Ok(())
     }
+
+    fn on_send_chat(&self) {
+        let i = self.chat_input.value();
+        if !i.is_empty() {
+            self.chat_input.set_value("");
+            self.base.send(ClientMessage::Chat(i));
+        }
+    }
+
+    fn on_new_player(&self, name: &str) -> JsResult<()> {
+        // Append a player to the bottom of the scores list
+        self.add_player_row(name.to_string(), 0, false, true)?;
+        self.on_information(&format!("{} joined the room", name))?;
+        Ok(())
+    }
+
+    fn on_player_disconnected(&self, index: usize) -> JsResult<()> {
+        let c = self.score_table.child_nodes()
+            .item((index + 1) as u32)
+            .unwrap()
+            .dyn_into::<HtmlElement>()?;
+        c.class_list().add_1("disconnected")?;
+        Ok(())
+    }
+
+    fn on_player_turn(&mut self, active_player: usize) -> JsResult<()> {
+        let children = self.score_table.child_nodes();
+        children
+            .item((self.active_player + 1) as u32)
+            .unwrap()
+            .dyn_into::<HtmlElement>()?
+            .class_list()
+            .remove_1("active")?;
+
+        self.active_player = active_player;
+        children
+            .item((self.active_player + 1) as u32)
+            .unwrap()
+            .dyn_into::<HtmlElement>()?
+            .class_list()
+            .add_1("active")?;
+        Ok(())
+    }
+
+    fn on_anim(&mut self, t: f64) -> JsResult<()> {
+        self.board.on_anim(t)
+    }
+
+    fn on_pointer_down(&mut self, evt: PointerEvent) -> JsResult<()> {
+        self.board.on_pointer_down(evt)
+    }
+
+    fn on_pointer_move(&mut self, evt: PointerEvent) -> JsResult<()> {
+        self.board.on_pointer_move(evt)
+    }
+
+    fn on_pointer_up(&mut self, evt: PointerEvent) -> JsResult<()> {
+        self.board.on_pointer_up(evt)
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-impl Handle {
-    fn on_unknown_room(&self, room: String) -> Result<(), JsValue> {
-        if let State::CreateOrJoin(s) = &self.state {
-            let err = format!("Could not find room '{}'", room);
-            s.err_span.set_text_content(Some(&err));
-            s.err_div.set_hidden(false);
-            s.play_button.set_disabled(false);
-            Ok(())
-        } else {
-            panic!("Invalid state");
-        }
+
+fn on_message(msg: ServerMessage) -> JsResult<()> {
+    use ServerMessage::*;
+    console_log!("Got message {:?}", msg);
+
+    let mut state = HANDLE.lock().unwrap();
+
+    match msg {
+        UnknownRoom(name) => state.on_unknown_room(&name),
+        JoinedRoom{room_name, players, active_player, board, pieces} =>
+            state.on_joined_room(&room_name, &players, active_player, &board, &pieces)?,
+        Chat{from, message} => state.on_chat(&from, &message)?,
+        Information(message) => state.on_information(&message)?,
+        NewPlayer(name) => state.on_new_player(&name)?,
+        //PlayerDisconnected(index) => state.on_player_disconnected(index)?,
+        //PlayerTurn(active_player) => state.on_player_turn(active_player)?,
+        _ => panic!(),
     }
 
-    fn canvas_pointer_down(&mut self, evt: PointerEvent) -> Result<(), JsValue> {
-        if let State::Playing(state) = &mut self.state {
-            state.board.pointer_down(evt)
-        } else {
-            panic!("Invalid state");
-        }
-    }
-
-    fn canvas_pointer_move(&self, evt: PointerEvent) -> Result<(), JsValue> {
-        if let State::Playing(state) = &self.state {
-            state.board.pointer_move(evt)
-        } else {
-            panic!("Invalid state");
-        }
-    }
-
-    fn canvas_pointer_up(&mut self, evt: PointerEvent) -> Result<(), JsValue> {
-        if let State::Playing(state) = &mut self.state {
-            state.board.pointer_up(evt)
-        } else {
-            panic!("Invalid state");
-        }
-    }
-
-    fn canvas_anim(&mut self, t: f64) -> Result<(), JsValue> {
-        if let State::Playing(state) = &mut self.state {
-            state.board.anim(t)
-        } else {
-            panic!("Invalid state");
-        }
-    }
-
-    fn send(&self, msg: ClientMessage) {
-        let encoded = serde_json::to_string(&msg)
-            .expect("Failed to encode");
-        self.ws.send_with_str(&encoded)
-            .expect("Could not send message");
-    }
-
-    fn on_chat(&self, from: String, message: String) -> Result<(), JsValue> {
-        if let State::Playing(state) = &self.state {
-            state.append_chat_message(&self.doc, &from, &message)
-        } else {
-            panic!("Invalid state");
-        }
-    }
-
-    fn on_information(&self, message: String) -> Result<(), JsValue> {
-        if let State::Playing(state) = &self.state {
-            state.append_info_message(&self.doc, &message)
-        } else {
-            panic!("Invalid state");
-        }
-    }
-
-    fn clear_main_div(&self) -> Result<(), JsValue> {
-        while let Some(c) = self.main_div.first_child() {
-            self.main_div.remove_child(&c)?;
-        }
-        Ok(())
-    }
-
-    fn on_joined_room(&mut self, room_name: String,
-                      players: Vec<(String, u32, bool)>,
-                      active_player: usize,
-                      board: HashMap<(i32, i32), Piece>,
-                      pieces: Vec<Piece>)
-        -> Result<(), JsValue>
-    {
-        self.clear_main_div()?;
-        self.state = PlayingState::new(
-            &self.doc, &self.main_div,
-            &room_name,
-            &players, active_player,
-            board, pieces)?;
-        Ok(())
-    }
-
-    fn send_chat(&self) {
-        if let State::Playing(state) = &self.state {
-            let i = state.chat_input.value();
-            if !i.is_empty() {
-                state.chat_input.set_value("");
-                self.send(ClientMessage::Chat(i));
-            }
-        } else {
-            panic!("Invalid state");
-        }
-    }
-
-    fn on_message(&mut self, msg: ServerMessage) -> Result<(), JsValue> {
-        use ServerMessage::*;
-        console_log!("Got message {:?}", msg);
-        match msg {
-            UnknownRoom(name) => self.on_unknown_room(name),
-            JoinedRoom{room_name, players, active_player, board, pieces} =>
-                self.on_joined_room(room_name, players, active_player,
-                                    board, pieces),
-            Chat{from, message} => self.on_chat(from, message),
-            Information(message) => self.on_information(message),
-            NewPlayer(name) => self.on_new_player(name),
-            PlayerDisconnected(index) => self.on_player_disconnected(index),
-            PlayerTurn(active_player) => self.on_player_turn(active_player),
-            /*
-            Players{ players, turn } => self.on_players(players, turn),
-            YourTurn => self.on_my_turn(),
-            NotYourTurn => self.on_not_my_turn(),
-            Board(b) => self.on_board(b),
-            Draw(pieces) => self.on_draw(pieces),
-            InvalidMove(s) => self.on_invalid_move(s),
-            */
-        }
-    }
-
-    fn on_player_disconnected(&self, index: usize) -> Result<(), JsValue> {
-        if let State::Playing(state) = &self.state {
-            let c = state.score_table.child_nodes()
-                .item((index + 1) as u32)
-                .unwrap()
-                .dyn_into::<HtmlElement>()?;
-            c.class_list().add_1("disconnected")?;
-            Ok(())
-        } else {
-            panic!("Invalid state");
-        }
-    }
-
-    fn on_player_turn(&mut self, active_player: usize) -> Result<(), JsValue> {
-        if let State::Playing(state) = &mut self.state {
-            let children = state.score_table.child_nodes();
-            children
-                .item((state.active_player + 1) as u32)
-                .unwrap()
-                .dyn_into::<HtmlElement>()?
-                .class_list()
-                .remove_1("active")?;
-
-            state.active_player = active_player;
-            children
-                .item((state.active_player + 1) as u32)
-                .unwrap()
-                .dyn_into::<HtmlElement>()?
-                .class_list()
-                .add_1("active")?;
-            Ok(())
-        } else {
-            panic!("Invalid state");
-        }
-    }
-
-    fn on_new_player(&self, name: String) -> Result<(), JsValue> {
-        // Append a player to the bottom of the scores list
-        if let State::Playing(state) = &self.state {
-            state.add_player_row(&self.doc, name.clone(), 0, false, true)?;
-            state.append_info_message(&self.doc,
-                                      &format!("{} joined the room", name))?;
-            Ok(())
-        } else {
-            panic!("Invalid state");
-        }
-    }
-
-    fn on_connected(&mut self) -> Result<(), JsValue> {
-        // Remove the "Connecting..." message
-        self.clear_main_div()?;
-        self.state = CreateOrJoinState::new(&self.doc, &self.main_div)?;
-
-        // Insta-join a room
-        self.send(ClientMessage::CreateRoom("Matt".to_string()));
-        Ok(())
-    }
-
-    fn set_room_invalid(&mut self) {
-        if let State::CreateOrJoin(state) = &self.state {
-            state.room_input.set_custom_validity("three lowercase words");
-        } else {
-            panic!("Invalid state");
-        }
-    }
-
-    fn check_join_inputs(&mut self) {
-        if let State::CreateOrJoin(state) = &self.state {
-            state.play_button.set_text_content(Some(
-                    if state.room_input.value().is_empty() {
-                        "Create new room"
-                    } else {
-                        "Join existing room"
-                    }));
-            state.room_input.set_custom_validity("");
-        } else {
-            panic!("Invalid state");
-        }
-    }
-
-    fn try_join(&mut self) {
-        if let State::CreateOrJoin(s) = &self.state {
-            s.play_button.set_disabled(true);
-            let name = s.name_input.value();
-            let room = s.room_input.value();
-            let msg = if room.is_empty() {
-                ClientMessage::CreateRoom(name)
-            } else {
-                ClientMessage::JoinRoom(name, room)
-            };
-            self.send(msg);
-        } else {
-            panic!("Invalid state");
-        }
-    }
+    Ok(())
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
 // Called when the wasm module is instantiated
 #[wasm_bindgen(start)]
-pub fn main() -> Result<(), JsValue> {
+pub fn main() -> JsResult<()> {
     console_error_panic_hook::set_once();
-
-    // These callbacks are deliberately forgotten so that they aren't
-    // destroyed when main() ends.  Other callbacks are owned in State
-    // objects, but that's not an option here.
-    set_event_cb(&HANDLE.lock().unwrap().ws, "open", move |_: JsValue| {
-        let mut state = HANDLE.lock().unwrap();
-        state.on_connected().expect("Failed to connect");
-    }).forget();
-
-    set_event_cb(&HANDLE.lock().unwrap().ws, "message", move |e: MessageEvent| {
-        let msg = serde_json::from_str(&e.data().as_string().unwrap())
-            .expect("Failed to decode message");
-        let mut state = HANDLE.lock().unwrap();
-        state.on_message(msg)
-            .expect("Failed to handle message");
-    }).forget();
-
-    set_event_cb(&HANDLE.lock().unwrap().ws, "close", move |_: Event| {
-        console_log!("Socket closed");
-    }).forget();
-
+    HANDLE.lock().unwrap();
     Ok(())
 }
