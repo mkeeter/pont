@@ -66,19 +66,29 @@ macro_rules! transitions {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+enum DragOrigin {
+    Hand(usize),
+    Grid(i32, i32),
+}
+
 type Pos = (f32, f32);
 struct Dragging {
-        target: Element,
-        shadow: Element,
-        offset: Pos,
-        orig: Pos,
+    target: Element,
+    shadow: Element,
+    offset: Pos,
+    piece: Piece,
+    origin: DragOrigin,
 }
+
 struct DropToGrid {
     target: Element,
+    shadow: Element,
     start: Pos,
     end: Pos,
-    t0: f64
+    t0: f64,
+    piece: Piece,
 }
+
 enum DragState {
     Idle,
     Dragging(Dragging),
@@ -100,151 +110,6 @@ pub struct Board {
     pointer_up_cb: Closure<dyn FnMut(PointerEvent)>,
     anim_cb: Closure<dyn FnMut(f64)>,
 }
-
-////////////////////////////////////////////////////////////////////////////////
-
-pub struct Base {
-    doc: Document,
-    main_div: HtmlElement,
-    ws: WebSocket,
-
-    _open_cb: Closure<dyn FnMut(JsValue)>,
-    _message_cb: Closure<dyn FnMut(MessageEvent)>,
-    _close_cb: Closure<dyn FnMut(Event)>,
-}
-
-impl Base {
-    fn clear_main_div(&self) -> JsError {
-        while let Some(c) = self.main_div.first_child() {
-            self.main_div.remove_child(&c)?;
-        }
-        Ok(())
-    }
-
-    fn send(&self, msg: ClientMessage) -> JsError {
-        let encoded = serde_json::to_string(&msg)
-            .map_err(|e| JsValue::from_str(
-                    &format!("Could not encode: {}", e)))?;
-        self.ws.send_with_str(&encoded)
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-// These are the states in the system
-struct Connecting {
-    base: Base
-}
-
-struct CreateOrJoin {
-    base: Base,
-
-    name_input: HtmlInputElement,
-    room_input: HtmlInputElement,
-    play_button: HtmlButtonElement,
-    err_div: HtmlElement,
-    err_span: HtmlElement,
-
-    // Callbacks are owned so that it lives as long as the state
-    _room_invalid_cb: Closure<dyn FnMut(Event)>,
-    _input_cb: Closure<dyn FnMut(Event)>,
-    _submit_cb: Closure<dyn FnMut(Event)>,
-}
-
-struct Playing {
-    base: Base,
-
-    chat_div: HtmlElement,
-    chat_input: HtmlInputElement,
-    score_table: HtmlElement,
-    player_index: usize,
-    active_player: usize,
-
-    board: Board,
-
-    // Callback is owned so that it lives as long as the state
-    _keyup_cb: Closure<dyn FnMut(KeyboardEvent)>,
-}
-
-
-////////////////////////////////////////////////////////////////////////////////
-
-enum State {
-    Connecting(Connecting),
-    CreateOrJoin(CreateOrJoin),
-    Playing(Playing),
-    Empty,
-}
-
-impl State {
-    transitions!(
-        Connecting => [
-            on_connected() -> CreateOrJoin,
-        ],
-        CreateOrJoin => [
-            on_joined_room(room_name: &str, players: &[(String, u32, bool)],
-                           active_players: usize,
-                           board: &HashMap<(i32, i32), Piece>,
-                           pieces: &[Piece]) -> Playing,
-        ],
-    );
-
-    methods!(
-        Playing => [
-            on_pointer_down(evt: PointerEvent),
-            on_pointer_up(evt: PointerEvent),
-            on_pointer_move(evt: PointerEvent),
-            on_anim(t: f64),
-            on_send_chat(),
-            on_chat(from: &str, msg: &str),
-            on_information(msg: &str),
-            on_new_player(name: &str),
-            on_player_disconnected(index: usize),
-            on_player_turn(active_player: usize),
-        ],
-        CreateOrJoin => [
-            on_room_name_invalid(),
-            on_join_inputs_changed(),
-            on_join_button(),
-            on_unknown_room(room: &str),
-        ],
-    );
-}
-
-unsafe impl Send for State { /* YOLO */}
-
-lazy_static::lazy_static! {
-    static ref HANDLE: Arc<Mutex<State>> = Arc::new(Mutex::new(State::Empty));
-}
-////////////////////////////////////////////////////////////////////////////////
-
-// Boilerplate to wrap and bind a callback.
-// The resulting callback must be stored for as long as it may be used.
-#[must_use]
-fn build_cb<F, T>(f: F) -> Closure<dyn std::ops::FnMut(T)>
-    where F: FnMut(T) + 'static,
-          T: FromWasmAbi + 'static
-{
-    Closure::wrap(Box::new(f) as Box<dyn FnMut(T)>)
-}
-
-#[must_use]
-fn set_event_cb<E, F, T>(obj: &E, name: &str, f: F)
-    -> Closure<dyn std::ops::FnMut(T)>
-    where E: JsCast + Clone + std::fmt::Debug,
-          F: FnMut(T) + 'static,
-          T: FromWasmAbi + 'static
-{
-    let cb = build_cb(f);
-    let target = obj.clone()
-        .dyn_into::<EventTarget>()
-        .expect("Could not convert into `EventTarget`");
-    target.add_event_listener_with_callback(name, cb.as_ref().unchecked_ref())
-        .expect("Could not add event listener");
-    cb
-}
-
-////////////////////////////////////////////////////////////////////////////////
 
 impl Board {
     fn new(doc: &Document, game_div: &HtmlElement) -> JsResult<Board> {
@@ -332,6 +197,7 @@ impl Board {
         shadow.class_list().add_1("shadow")?;
         shadow.set_attribute("width", "10.0")?;
         shadow.set_attribute("height", "10.0")?;
+        shadow.set_attribute("visibility", "hidden")?;
         self.svg.append_child(&shadow)?;
 
         // Walk up the tree to find the piece's <g> group,
@@ -352,14 +218,24 @@ impl Board {
         let (mx, my) = self.mouse_pos(&evt);
         let (dx, dy) = Self::get_transform(&target);
 
-        shadow.set_attribute("x", &dx.to_string())?;
-        shadow.set_attribute("y", &dy.to_string())?;
+        let x = dx.round() as i32;
+        let y = dy.round() as i32;
+        console_log!("Got piece from {} {}", x, y);
+
+        let (origin, piece) = if y == 185 {
+            let i = ((x - 5) / 15) as usize;
+            (DragOrigin::Hand(i), self.hand[i])
+        } else {
+            let x = x / 10;
+            let y = y / 10;
+            (DragOrigin::Grid(x, y), self.tentative.remove(&(x, y)).unwrap())
+        };
 
         self.drag = DragState::Dragging(Dragging {
             target,
             shadow,
-            orig: (dx, dy),
-            offset: (mx - dx, my - dy)
+            offset: (mx - dx, my - dy),
+            origin, piece,
         });
         Ok(())
     }
@@ -414,12 +290,13 @@ impl Board {
             let tx = (x / 10.0).round() as i32;
             let ty = (y / 10.0).round() as i32;
 
-            self.svg.remove_child(&d.shadow)?;
             self.drag = DragState::DropToGrid(DropToGrid{
                 target: d.target.clone(),
                 start: (x, y),
                 end: (tx as f32 * 10.0, ty as f32 * 10.0),
                 t0: evt.time_stamp(),
+                piece: d.piece,
+                shadow: d.shadow.clone(),
             });
         }
 
@@ -445,7 +322,9 @@ impl Board {
             } else {
                 let x = (d.end.0 / 10.0).round() as i32;
                 let y = (d.end.1 / 10.0).round() as i32;
-                self.tentative.insert((x, y), (Shape::Diamond, Color::Red));
+                self.tentative.insert((x, y), d.piece);
+                self.svg.remove_child(&d.shadow)?;
+                self.drag = DragState::Idle;
             }
         }
         Ok(())
@@ -567,6 +446,148 @@ impl Board {
 
         Ok(())
     }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+pub struct Base {
+    doc: Document,
+    main_div: HtmlElement,
+    ws: WebSocket,
+
+    _open_cb: Closure<dyn FnMut(JsValue)>,
+    _message_cb: Closure<dyn FnMut(MessageEvent)>,
+    _close_cb: Closure<dyn FnMut(Event)>,
+}
+
+impl Base {
+    fn clear_main_div(&self) -> JsError {
+        while let Some(c) = self.main_div.first_child() {
+            self.main_div.remove_child(&c)?;
+        }
+        Ok(())
+    }
+
+    fn send(&self, msg: ClientMessage) -> JsError {
+        let encoded = serde_json::to_string(&msg)
+            .map_err(|e| JsValue::from_str(
+                    &format!("Could not encode: {}", e)))?;
+        self.ws.send_with_str(&encoded)
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+// These are the states in the system
+struct Connecting {
+    base: Base
+}
+
+struct CreateOrJoin {
+    base: Base,
+
+    name_input: HtmlInputElement,
+    room_input: HtmlInputElement,
+    play_button: HtmlButtonElement,
+    err_div: HtmlElement,
+    err_span: HtmlElement,
+
+    // Callbacks are owned so that it lives as long as the state
+    _room_invalid_cb: Closure<dyn FnMut(Event)>,
+    _input_cb: Closure<dyn FnMut(Event)>,
+    _submit_cb: Closure<dyn FnMut(Event)>,
+}
+
+struct Playing {
+    base: Base,
+
+    chat_div: HtmlElement,
+    chat_input: HtmlInputElement,
+    score_table: HtmlElement,
+    player_index: usize,
+    active_player: usize,
+
+    board: Board,
+
+    // Callback is owned so that it lives as long as the state
+    _keyup_cb: Closure<dyn FnMut(KeyboardEvent)>,
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+enum State {
+    Connecting(Connecting),
+    CreateOrJoin(CreateOrJoin),
+    Playing(Playing),
+    Empty,
+}
+
+impl State {
+    transitions!(
+        Connecting => [
+            on_connected() -> CreateOrJoin,
+        ],
+        CreateOrJoin => [
+            on_joined_room(room_name: &str, players: &[(String, u32, bool)],
+                           active_players: usize,
+                           board: &HashMap<(i32, i32), Piece>,
+                           pieces: &[Piece]) -> Playing,
+        ],
+    );
+
+    methods!(
+        Playing => [
+            on_pointer_down(evt: PointerEvent),
+            on_pointer_up(evt: PointerEvent),
+            on_pointer_move(evt: PointerEvent),
+            on_anim(t: f64),
+            on_send_chat(),
+            on_chat(from: &str, msg: &str),
+            on_information(msg: &str),
+            on_new_player(name: &str),
+            on_player_disconnected(index: usize),
+            on_player_turn(active_player: usize),
+        ],
+        CreateOrJoin => [
+            on_room_name_invalid(),
+            on_join_inputs_changed(),
+            on_join_button(),
+            on_unknown_room(room: &str),
+        ],
+    );
+}
+
+unsafe impl Send for State { /* YOLO */}
+
+lazy_static::lazy_static! {
+    static ref HANDLE: Arc<Mutex<State>> = Arc::new(Mutex::new(State::Empty));
+}
+////////////////////////////////////////////////////////////////////////////////
+
+// Boilerplate to wrap and bind a callback.
+// The resulting callback must be stored for as long as it may be used.
+#[must_use]
+fn build_cb<F, T>(f: F) -> Closure<dyn std::ops::FnMut(T)>
+    where F: FnMut(T) + 'static,
+          T: FromWasmAbi + 'static
+{
+    Closure::wrap(Box::new(f) as Box<dyn FnMut(T)>)
+}
+
+#[must_use]
+fn set_event_cb<E, F, T>(obj: &E, name: &str, f: F)
+    -> Closure<dyn std::ops::FnMut(T)>
+    where E: JsCast + Clone + std::fmt::Debug,
+          F: FnMut(T) + 'static,
+          T: FromWasmAbi + 'static
+{
+    let cb = build_cb(f);
+    let target = obj.clone()
+        .dyn_into::<EventTarget>()
+        .expect("Could not convert into `EventTarget`");
+    target.add_event_listener_with_callback(name, cb.as_ref().unchecked_ref())
+        .expect("Could not add event listener");
+    cb
 }
 
 ////////////////////////////////////////////////////////////////////////////////
