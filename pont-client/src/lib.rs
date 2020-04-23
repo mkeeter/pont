@@ -32,21 +32,57 @@ type JsError = Result<(), JsValue>;
 
 ////////////////////////////////////////////////////////////////////////////////
 
+macro_rules! methods {
+    ($($sub:ident => [$($name:ident($($var:ident: $type:ty),*)),+ $(,)?]),+
+       $(,)?) =>
+    {
+        $($(
+        fn $name(&mut self, $($var: $type),* ) -> JsError {
+            match self {
+                State::$sub(s) => s.$name($($var),*),
+                _ => panic!("Invalid state"),
+            }
+        }
+        )+)+
+    }
+}
+
+macro_rules! transitions {
+    ($($sub:ident => [$($name:ident($($var:ident: $type:ty),*)
+                        -> $into:ident),+ $(,)?]),+$(,)?) =>
+    {
+        $($(
+        fn $name(&mut self, $($var: $type),* ) -> JsError {
+            let s = std::mem::replace(self, State::Empty);
+            match s {
+                State::$sub(s) => *self = State::$into(s.$name($($var),*)?),
+                _ => panic!("Invalid state"),
+            }
+            Ok(())
+        }
+        )+)+
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 type Pos = (f32, f32);
-enum DragState {
-    Idle,
-    Dragging {
+struct Dragging {
         target: Element,
         shadow: Element,
         offset: Pos,
         orig: Pos,
-    },
-    DropToGrid {
-        target: Element,
-        start: Pos,
-        end: Pos,
-        t0: f64
-    },
+}
+struct DropToGrid {
+    target: Element,
+    start: Pos,
+    end: Pos,
+    t0: f64
+}
+enum DragState {
+    Idle,
+    Dragging(Dragging),
+    DropToGrid(DropToGrid),
 }
 
 pub struct Board {
@@ -138,38 +174,6 @@ enum State {
     CreateOrJoin(CreateOrJoin),
     Playing(Playing),
     Empty,
-}
-
-macro_rules! methods {
-    ($($sub:ident => [$($name:ident($($var:ident: $type:ty),*)),+ $(,)?]),+
-       $(,)?) =>
-    {
-        $($(
-        fn $name(&mut self, $($var: $type),* ) -> JsError {
-            match self {
-                State::$sub(s) => s.$name($($var),*),
-                _ => panic!("Invalid state"),
-            }
-        }
-        )+)+
-    }
-}
-
-macro_rules! transitions {
-    ($($sub:ident => [$($name:ident($($var:ident: $type:ty),*)
-                        -> $into:ident),+ $(,)?]),+$(,)?) =>
-    {
-        $($(
-        fn $name(&mut self, $($var: $type),* ) -> JsError {
-            let s = std::mem::replace(self, State::Empty);
-            match s {
-                State::$sub(s) => *self = State::$into(s.$name($($var),*)?),
-                _ => panic!("Invalid state"),
-            }
-            Ok(())
-        }
-        )+)+
-    }
 }
 
 impl State {
@@ -351,24 +355,24 @@ impl Board {
         shadow.set_attribute("x", &dx.to_string())?;
         shadow.set_attribute("y", &dy.to_string())?;
 
-        self.drag = DragState::Dragging {
+        self.drag = DragState::Dragging(Dragging {
             target,
             shadow,
             orig: (dx, dy),
             offset: (mx - dx, my - dy)
-        };
+        });
         Ok(())
     }
 
     fn on_pointer_move(&self, evt: PointerEvent) -> JsError {
         evt.prevent_default();
-        if let DragState::Dragging{orig: _, target, shadow, offset} = &self.drag {
+        if let DragState::Dragging(d) = &self.drag {
             let (mx, my) = self.mouse_pos(&evt);
 
-            let x = mx - offset.0;
-            let y = my - offset.1;
-            target.set_attribute("transform",
-                                 &format!("translate({} {})", x, y))?;
+            let x = mx - d.offset.0;
+            let y = my - d.offset.1;
+            d.target.set_attribute("transform",
+                                   &format!("translate({} {})", x, y))?;
             let x = (x / 10.0).round() as i32;
             let y = (y / 10.0).round() as i32;
 
@@ -377,11 +381,11 @@ impl Board {
             if y < 18 && !overlapping {
                 let x = x as f32 * 10.0;
                 let y = y as f32 * 10.0;
-                shadow.set_attribute("x", &x.to_string())?;
-                shadow.set_attribute("y", &y.to_string())?;
-                shadow.set_attribute("visibility", "visible")?;
+                d.shadow.set_attribute("x", &x.to_string())?;
+                d.shadow.set_attribute("y", &y.to_string())?;
+                d.shadow.set_attribute("visibility", "visible")?;
             } else {
-                shadow.set_attribute("visibility", "hidden")?;
+                d.shadow.set_attribute("visibility", "hidden")?;
             }
         }
         Ok(())
@@ -390,16 +394,16 @@ impl Board {
     fn on_pointer_up(&mut self, evt: PointerEvent) -> JsError {
         console_log!("pointer up {:?}", evt);
         evt.prevent_default();
-        if let DragState::Dragging{target, shadow, offset, orig} = &self.drag {
+        if let DragState::Dragging(d) = &self.drag {
             let (mx, my) = self.mouse_pos(&evt);
 
-            let x = mx - offset.0;
-            let y = my - offset.1;
+            let x = mx - d.offset.0;
+            let y = my - d.offset.1;
 
-            target.remove_event_listener_with_callback("pointermove",
+            d.target.remove_event_listener_with_callback("pointermove",
                     self.pointer_move_cb.as_ref().unchecked_ref())
                 .expect("Could not remove event listener");
-            target.remove_event_listener_with_callback("pointerup",
+            d.target.remove_event_listener_with_callback("pointerup",
                     self.pointer_up_cb.as_ref().unchecked_ref())
                 .expect("Could not remove event listener");
             web_sys::window()
@@ -410,37 +414,37 @@ impl Board {
             let tx = (x / 10.0).round() as i32;
             let ty = (y / 10.0).round() as i32;
 
-            self.svg.remove_child(&shadow)?;
-            self.drag = DragState::DropToGrid {
-                target: target.clone(),
+            self.svg.remove_child(&d.shadow)?;
+            self.drag = DragState::DropToGrid(DropToGrid{
+                target: d.target.clone(),
                 start: (x, y),
                 end: (tx as f32 * 10.0, ty as f32 * 10.0),
                 t0: evt.time_stamp(),
-            };
+            });
         }
 
         Ok(())
     }
 
     fn on_anim(&mut self, t: f64) -> JsError {
-        if let DragState::DropToGrid{target, start, end, t0} = &mut self.drag {
+        if let DragState::DropToGrid(d) = &mut self.drag {
             let anim_length = 10.0;
-            let mut frac = ((t - *t0) / anim_length) as f32;
+            let mut frac = ((t - d.t0) / anim_length) as f32;
             if frac > 1.0 {
                 frac = 1.0;
             }
-            let x = start.0 * (1.0 - frac) + end.0 * frac;
-            let y = start.1 * (1.0 - frac) + end.1 * frac;
-            target.set_attribute("transform",
-                                 &format!("translate({} {})", x, y))?;
+            let x = d.start.0 * (1.0 - frac) + d.end.0 * frac;
+            let y = d.start.1 * (1.0 - frac) + d.end.1 * frac;
+            d.target.set_attribute("transform",
+                                   &format!("translate({} {})", x, y))?;
             if frac < 1.0 {
                 web_sys::window()
                     .expect("no global `window` exists")
                     .request_animation_frame(self.anim_cb.as_ref()
                                              .unchecked_ref())?;
             } else {
-                let x = (end.0 / 10.0).round() as i32;
-                let y = (end.1 / 10.0).round() as i32;
+                let x = (d.end.0 / 10.0).round() as i32;
+                let y = (d.end.1 / 10.0).round() as i32;
                 self.tentative.insert((x, y), (Shape::Diamond, Color::Red));
             }
         }
