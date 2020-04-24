@@ -143,14 +143,23 @@ rect.shadow {
     fill: var(--violet);
 }
 
-svg#game {
+svg#dummy {
     width: calc(100% - 2px); /* accounts for border */
+}
+
+svg#game {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    left: 0px;
+    top: 0px;
 }
 
 div.background {
     position: absolute;
     pointer-events:none;
     border:1px solid var(--base1);
+    background-color: var(--base3);
 }
 
 div#hand {
@@ -166,10 +175,6 @@ div#board {
     top: 0px;
     width: calc(100% - 3px);
     height: calc(87.5% - 2px);
-}
-
-rect.background {
-    fill: var(--base3);
 }
 
 div#svg {

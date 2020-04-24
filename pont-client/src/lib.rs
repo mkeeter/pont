@@ -137,6 +137,12 @@ impl Board {
                 Some("http://www.w3.org/2000/svg"), "svg")?
             .dyn_into::<SvgGraphicsElement>()?;
 
+        let dummy = doc.create_element_ns(
+                Some("http://www.w3.org/2000/svg"), "svg")?
+            .dyn_into::<SvgGraphicsElement>()?;
+        dummy.set_attribute("viewBox", "0 0 200 200")?;
+        dummy.set_id("dummy");
+
         svg.set_id("game");
         svg.set_attribute("width", "100")?;
         svg.set_attribute("hight", "100")?;
@@ -144,6 +150,7 @@ impl Board {
 
         let svg_div = doc.create_element("div")?;
         svg_div.set_id("svg");
+        svg_div.append_child(&dummy)?;
 
         let hand_div = doc.create_element("div")?;
         hand_div.set_id("hand");
@@ -191,22 +198,6 @@ impl Board {
             pointer_up_cb,
             pointer_move_cb,
             anim_cb};
-
-        let hand_region = out.create("rect")?;
-        hand_region.set_attribute("width", "95")?;
-        hand_region.set_attribute("height", "20")?;
-        hand_region.set_attribute("x", "0.0")?;
-        hand_region.set_attribute("y", "180.0")?;
-        hand_region.class_list().add_1("background")?;
-        out.svg.append_child(&hand_region)?;
-
-        let board_region = out.create("rect")?;
-        board_region.set_attribute("width", "200")?;
-        board_region.set_attribute("height", "175")?;
-        board_region.set_attribute("x", "0.0")?;
-        board_region.set_attribute("y", "0.0")?;
-        board_region.class_list().add_1("background")?;
-        out.svg.append_child(&board_region)?;
 
         Ok(out)
     }
