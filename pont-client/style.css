@@ -39,6 +39,7 @@ div#chat_input {
     margin-top: 10px;
 }
 input#chat_input {
+    min-width: 0px;
     flex: 1;
 }
 div#chat_name {
@@ -72,12 +73,15 @@ p.msg {
     margin-bottom: 2px;
 }
 
+button {
+    background-color: var(--base3);
+    border:1px solid var(--base1);
+}
+
 form button {
     padding: 10px 20px;
     font-family: Inconsolata, "Courier New", monospace;
     font-size: 16px;
-    background-color: var(--base3);
-    border:1px solid var(--base1);
     border-radius: 15px
 }
 
@@ -125,6 +129,27 @@ rect.shadow {
     stroke: var(--base1);
 }
 
+button.gameplay {
+    color: var(--base02);
+    position: absolute;
+    border-radius: 5px;
+    height: 10%;
+    width: 10%;
+    font-size: 4vw;
+}
+
+button#reject_button {
+    left: 100%;
+    top: 100%;
+    transform: translateY(-101%) translateX(-101%);
+}
+
+button#accept_button {
+    left: 100%;
+    top: 100%;
+    transform: translateY(-101%) translateX(-211%);
+}
+
 .shape-orange {
     fill: var(--orange);
 }
@@ -146,6 +171,7 @@ rect.shadow {
 
 svg#dummy {
     width: calc(100% - 2px); /* accounts for border */
+    pointer-events: none;
 }
 
 svg#game {
@@ -158,7 +184,6 @@ svg#game {
 
 div.background {
     position: absolute;
-    pointer-events:none;
     border:1px solid var(--base1);
     background-color: var(--base3);
 }
@@ -166,7 +191,7 @@ div.background {
 div#hand {
     left: 0px;
     top: calc(100% + 1px);
-    transform: translateY(-100%);
+    transform: translateY(-101%);
     width: calc(47.5% - 2px);
     height: 10%;
 }
@@ -189,6 +214,7 @@ path.divider {
     vector-effect: non-scaling-stroke;
 }
 
+/* Two-column layout */
 @media only screen and (min-width: 600px) {
     div#game {
         grid-template-columns: 2fr 1fr;
@@ -196,11 +222,18 @@ path.divider {
     div#chat_col{
         grid-column: 1 / span 2;
     }
+    button.gameplay {
+        font-size: 3vw;
+    }
 }
 
+/* Three-column layout */
 @media only screen and (min-width: 1000px) {
     div#svg {
         margin-bottom: 0px;
+    }
+    button.gameplay {
+        font-size: 2vw;
     }
     div#game {
         grid-template-columns: 2fr 1fr 1fr;

@@ -162,6 +162,24 @@ impl Board {
         board_div.set_id("board");
         svg_div.append_child(&board_div)?;
 
+        let accept_button = doc.create_element("button")?
+            .dyn_into::<HtmlButtonElement>()?;
+        accept_button.set_inner_html("<i class=\"fas fa-check\"></i>");
+        accept_button.set_id("accept_button");
+        accept_button.set_class_name("gameplay");
+        svg_div.append_child(&accept_button)?;
+        set_event_cb(&accept_button, "click", move |e: Event| {
+            e.prevent_default();
+            console_log!("CLICKED");
+        }).forget();
+
+        let reject_button = doc.create_element("button")?
+            .dyn_into::<HtmlButtonElement>()?;
+        reject_button.set_inner_html("<i class=\"fas fa-times\"></i>");
+        reject_button.set_id("reject_button");
+        reject_button.set_class_name("gameplay");
+        svg_div.append_child(&reject_button)?;
+
         svg_div.append_child(&svg)?;
 
         game_div.append_child(&svg_div)?;
@@ -224,7 +242,6 @@ impl Board {
     }
 
     fn on_pointer_down(&mut self, evt: PointerEvent) -> JsError {
-        evt.prevent_default();
         // We only drag if nothing else is dragging;
         // no fancy multi-touch dragging here.
         match self.drag {
@@ -232,6 +249,7 @@ impl Board {
             _ => return Ok(()),
         }
 
+        evt.prevent_default();
         let mut target = evt.target()
             .unwrap()
             .dyn_into::<Element>()?;
@@ -286,8 +304,8 @@ impl Board {
     }
 
     fn on_pointer_move(&self, evt: PointerEvent) -> JsError {
-        evt.prevent_default();
         if let DragState::Dragging(d) = &self.drag {
+            evt.prevent_default();
             let (mx, my) = self.mouse_pos(&evt);
 
             let x = mx - d.offset.0;
@@ -315,8 +333,8 @@ impl Board {
 
     fn on_pointer_up(&mut self, evt: PointerEvent) -> JsError {
         console_log!("pointer up {:?}", evt);
-        evt.prevent_default();
         if let DragState::Dragging(d) = &self.drag {
+            evt.prevent_default();
             let (mx, my) = self.mouse_pos(&evt);
 
             let x = mx - d.offset.0;
@@ -393,7 +411,6 @@ impl Board {
                                          .unchecked_ref())?;
 
         }
-
         Ok(())
     }
 
