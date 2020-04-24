@@ -66,33 +66,52 @@ macro_rules! transitions {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-enum DragOrigin {
-    Hand(usize),
-    Grid(i32, i32),
-}
-
 type Pos = (f32, f32);
 struct Dragging {
     target: Element,
     shadow: Element,
     offset: Pos,
-    piece: Piece,
-    origin: DragOrigin,
+    grid_origin: Option<(i32, i32)>,
+    hand_index: usize,
 }
 
-struct DropToGrid {
+struct TileAnimation {
     target: Element,
-    shadow: Element,
     start: Pos,
     end: Pos,
     t0: f64,
-    piece: Piece,
+}
+
+impl TileAnimation {
+    // Returns true if the animation should keep running
+    fn run(&self, t: f64) -> JsResult<bool> {
+        let anim_length = 100.0;
+        let mut frac = ((t - self.t0) / anim_length) as f32;
+        if frac > 1.0 {
+            frac = 1.0;
+        }
+        let x = self.start.0 * (1.0 - frac) + self.end.0 * frac;
+        let y = self.start.1 * (1.0 - frac) + self.end.1 * frac;
+        self.target.set_attribute("transform", &format!("translate({} {})",
+                                                        x, y))?;
+        Ok(frac < 1.0)
+    }
+}
+
+struct DropToGrid {
+    anim: TileAnimation,
+    shadow: Element,
+}
+
+struct ReturnToHand {
+    anim: TileAnimation,
 }
 
 enum DragState {
     Idle,
     Dragging(Dragging),
     DropToGrid(DropToGrid),
+    ReturnToHand(ReturnToHand),
 }
 
 pub struct Board {
@@ -102,7 +121,7 @@ pub struct Board {
     drag: DragState,
 
     grid: HashMap<(i32, i32), Piece>,
-    tentative: HashMap<(i32, i32), Piece>,
+    tentative: HashMap<(i32, i32), usize>,
     hand: Vec<Piece>,
 
     pointer_down_cb: Closure<dyn FnMut(PointerEvent)>,
@@ -188,6 +207,13 @@ impl Board {
 
     fn on_pointer_down(&mut self, evt: PointerEvent) -> JsError {
         evt.prevent_default();
+        // We only drag if nothing else is dragging;
+        // no fancy multi-touch dragging here.
+        match self.drag {
+            DragState::Idle => (),
+            _ => return Ok(()),
+        }
+
         let mut target = evt.target()
             .unwrap()
             .dyn_into::<Element>()?;
@@ -222,20 +248,21 @@ impl Board {
         let y = dy.round() as i32;
         console_log!("Got piece from {} {}", x, y);
 
-        let (origin, piece) = if y == 185 {
+        let (hand_index, grid_origin) = if y == 185 {
             let i = ((x - 5) / 15) as usize;
-            (DragOrigin::Hand(i), self.hand[i])
+            (i, None)
         } else {
             let x = x / 10;
             let y = y / 10;
-            (DragOrigin::Grid(x, y), self.tentative.remove(&(x, y)).unwrap())
+            (self.tentative.remove(&(x, y)).unwrap(), Some((x, y)))
         };
 
         self.drag = DragState::Dragging(Dragging {
             target,
             shadow,
             offset: (mx - dx, my - dy),
-            origin, piece,
+            hand_index,
+            grid_origin,
         });
         Ok(())
     }
@@ -282,50 +309,97 @@ impl Board {
             d.target.remove_event_listener_with_callback("pointerup",
                     self.pointer_up_cb.as_ref().unchecked_ref())
                 .expect("Could not remove event listener");
+
+            let tx = (x / 10.0).round() as i32;
+            let ty = (y / 10.0).round() as i32;
+
+            let overlapping = self.grid.contains_key(&(tx, ty)) ||
+                              self.tentative.contains_key(&(tx, ty));
+            self.drag = if ty >= 18 {
+                // Drop to hand
+                self.svg.remove_child(&d.shadow)?;
+                DragState::ReturnToHand(ReturnToHand{
+                    anim: TileAnimation {
+                        target: d.target.clone(),
+                        start: (x, y),
+                        end: ((d.hand_index * 15 + 5) as f32, 185.0),
+                        t0: evt.time_stamp()
+                    }})
+            } else if !overlapping {
+                // Insert into the grid with a dropping animation
+                self.tentative.insert((tx, ty), d.hand_index);
+                DragState::DropToGrid(DropToGrid{
+                    anim: TileAnimation {
+                        target: d.target.clone(),
+                        start: (x, y),
+                        end: (tx as f32 * 10.0, ty as f32 * 10.0),
+                        t0: evt.time_stamp(),
+                    },
+                    shadow: d.shadow.clone(),
+                })
+            } else {
+                // Return to its previous grid position or your hand
+                match d.grid_origin {
+                    None => {
+                        self.svg.remove_child(&d.shadow)?;
+                        DragState::ReturnToHand(ReturnToHand{
+                            anim: TileAnimation {
+                                target: d.target.clone(),
+                                start: (x, y),
+                                end: ((d.hand_index * 15 + 5) as f32, 185.0),
+                                t0: evt.time_stamp()
+                            }
+                        })
+                    }
+                    Some((gx, gy)) => {
+                        self.tentative.insert((gx, gy), d.hand_index);
+                        DragState::DropToGrid(DropToGrid{
+                            anim: TileAnimation {
+                                target: d.target.clone(),
+                                start: (x, y),
+                                end: ((gx * 10) as f32, (gy * 10) as f32),
+                                t0: evt.time_stamp(),
+                            },
+                            shadow: d.shadow.clone(),
+                        })
+                    }
+                }
+            };
+
             web_sys::window()
                 .expect("no global `window` exists")
                 .request_animation_frame(self.anim_cb.as_ref()
                                          .unchecked_ref())?;
 
-            let tx = (x / 10.0).round() as i32;
-            let ty = (y / 10.0).round() as i32;
-
-            self.drag = DragState::DropToGrid(DropToGrid{
-                target: d.target.clone(),
-                start: (x, y),
-                end: (tx as f32 * 10.0, ty as f32 * 10.0),
-                t0: evt.time_stamp(),
-                piece: d.piece,
-                shadow: d.shadow.clone(),
-            });
         }
 
         Ok(())
     }
 
     fn on_anim(&mut self, t: f64) -> JsError {
-        if let DragState::DropToGrid(d) = &mut self.drag {
-            let anim_length = 10.0;
-            let mut frac = ((t - d.t0) / anim_length) as f32;
-            if frac > 1.0 {
-                frac = 1.0;
+        match &mut self.drag {
+            DragState::DropToGrid(d) => {
+                if d.anim.run(t)? {
+                    web_sys::window()
+                        .expect("no global `window` exists")
+                        .request_animation_frame(self.anim_cb.as_ref()
+                                                 .unchecked_ref())?;
+                } else {
+                    self.svg.remove_child(&d.shadow)?;
+                    self.drag = DragState::Idle;
+                }
+            },
+            DragState::ReturnToHand(d) => {
+                if d.anim.run(t)? {
+                    web_sys::window()
+                        .expect("no global `window` exists")
+                        .request_animation_frame(self.anim_cb.as_ref()
+                                                 .unchecked_ref())?;
+                } else {
+                    self.drag = DragState::Idle;
+                }
             }
-            let x = d.start.0 * (1.0 - frac) + d.end.0 * frac;
-            let y = d.start.1 * (1.0 - frac) + d.end.1 * frac;
-            d.target.set_attribute("transform",
-                                   &format!("translate({} {})", x, y))?;
-            if frac < 1.0 {
-                web_sys::window()
-                    .expect("no global `window` exists")
-                    .request_animation_frame(self.anim_cb.as_ref()
-                                             .unchecked_ref())?;
-            } else {
-                let x = (d.end.0 / 10.0).round() as i32;
-                let y = (d.end.1 / 10.0).round() as i32;
-                self.tentative.insert((x, y), d.piece);
-                self.svg.remove_child(&d.shadow)?;
-                self.drag = DragState::Idle;
-            }
+            _ => panic!("Invalid state"),
         }
         Ok(())
     }
