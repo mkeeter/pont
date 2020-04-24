@@ -76,18 +76,25 @@ p.msg {
 button {
     background-color: var(--base3);
     border:1px solid var(--base1);
+    border-radius: 5px;
+    transition: border-radius 0.1s;
 }
 
 form button {
+    border-radius: 5px
+    transition: border-radius 0.1s;
     padding: 10px 20px;
     font-family: Inconsolata, "Courier New", monospace;
     font-size: 16px;
-    border-radius: 15px
 }
 
 form:invalid button {
     color: var(--base1);
     background-color: var(--base2);
+}
+
+form:not(:invalid) button:hover {
+    border-radius: 15px;
 }
 
 div#game {
@@ -132,10 +139,12 @@ rect.shadow {
 button.gameplay {
     color: var(--base02);
     position: absolute;
-    border-radius: 5px;
     height: 10%;
     width: 10%;
     font-size: 4vw;
+}
+button.gameplay:hover {
+    border-radius: 15px;
 }
 
 button#reject_button {
