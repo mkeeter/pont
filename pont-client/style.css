@@ -61,6 +61,7 @@ div#chat {
 div#chat_col {
     display: flex;
     flex-direction: column;
+    overflow-x: auto;
 }
 #chat span {
     margin-left: 5px;
@@ -207,7 +208,7 @@ path.divider {
     div#chat {
         display:flex;
         flex-direction: column;
-        flex: 1;
+        flex: 1 0 auto;
     }
     div#chat_col{
         grid-column: 3;
