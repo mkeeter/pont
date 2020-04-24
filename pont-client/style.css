@@ -180,6 +180,11 @@ svg#game {
     height: 100%;
     left: 0px;
     top: 0px;
+    pointer-events: none;
+}
+
+g.piece {
+    pointer-events: auto;
 }
 
 div.background {
