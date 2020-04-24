@@ -315,6 +315,8 @@ impl Board {
 
             let overlapping = self.grid.contains_key(&(tx, ty)) ||
                               self.tentative.contains_key(&(tx, ty));
+            let offscreen = tx < 0 || tx >= 20 || ty < 0 || ty >= 20;
+            console_log!("Dropping at {} {}", tx, ty);
             self.drag = if ty >= 18 {
                 // Drop to hand
                 self.svg.remove_child(&d.shadow)?;
@@ -325,7 +327,7 @@ impl Board {
                         end: ((d.hand_index * 15 + 5) as f32, 185.0),
                         t0: evt.time_stamp()
                     }})
-            } else if !overlapping {
+            } else if !overlapping && !offscreen {
                 // Insert into the grid with a dropping animation
                 self.tentative.insert((tx, ty), d.hand_index);
                 DragState::DropToGrid(DropToGrid{
