@@ -276,14 +276,15 @@ impl Board {
             let y = my - d.offset.1;
             d.target.set_attribute("transform",
                                    &format!("translate({} {})", x, y))?;
-            let x = (x / 10.0).round() as i32;
-            let y = (y / 10.0).round() as i32;
+            let tx = (x / 10.0).round() as i32;
+            let ty = (y / 10.0).round() as i32;
 
-            let overlapping = self.grid.contains_key(&(x, y)) ||
-                              self.tentative.contains_key(&(x, y));
-            if y < 18 && !overlapping {
-                let x = x as f32 * 10.0;
-                let y = y as f32 * 10.0;
+            let overlapping = self.grid.contains_key(&(tx, ty)) ||
+                              self.tentative.contains_key(&(tx, ty));
+            let offscreen = tx < 0 || tx >= 20 || ty < 0 || ty >= 20;
+            if ty < 18 && !overlapping && !offscreen {
+                let x = tx as f32 * 10.0;
+                let y = ty as f32 * 10.0;
                 d.shadow.set_attribute("x", &x.to_string())?;
                 d.shadow.set_attribute("y", &y.to_string())?;
                 d.shadow.set_attribute("visibility", "visible")?;
