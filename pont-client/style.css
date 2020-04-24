@@ -145,9 +145,36 @@ rect.shadow {
 
 svg#game {
     width: calc(100% - 2px); /* accounts for border */
-    background-color: var(--base3);
+}
+
+div.background {
+    position: absolute;
+    pointer-events:none;
     border:1px solid var(--base1);
+}
+
+div#hand {
+    left: 0px;
+    top: calc(100% + 1px);
+    transform: translateY(-100%);
+    width: calc(47.5% - 2px);
+    height: 10%;
+}
+
+div#board {
+    left: 0px;
+    top: 0px;
+    width: calc(100% - 3px);
+    height: calc(87.5% - 2px);
+}
+
+rect.background {
+    fill: var(--base3);
+}
+
+div#svg {
     margin-bottom: 10px;
+    position: relative;
 }
 
 path.divider {
@@ -166,7 +193,7 @@ path.divider {
 }
 
 @media only screen and (min-width: 1000px) {
-    svg#game {
+    div#svg {
         margin-bottom: 0px;
     }
     div#game {

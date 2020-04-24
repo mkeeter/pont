@@ -141,7 +141,23 @@ impl Board {
         svg.set_attribute("width", "100")?;
         svg.set_attribute("hight", "100")?;
         svg.set_attribute("viewBox", "0 0 200 200")?;
-        game_div.append_child(&svg)?;
+
+        let svg_div = doc.create_element("div")?;
+        svg_div.set_id("svg");
+
+        let hand_div = doc.create_element("div")?;
+        hand_div.set_id("hand");
+        hand_div.set_class_name("background");
+        svg_div.append_child(&hand_div)?;
+
+        let board_div = doc.create_element("div")?;
+        board_div.set_class_name("background");
+        board_div.set_id("board");
+        svg_div.append_child(&board_div)?;
+
+        svg_div.append_child(&svg)?;
+
+        game_div.append_child(&svg_div)?;
 
         let pointer_down_cb = build_cb(move |evt: PointerEvent| {
             HANDLE.lock().unwrap()
@@ -176,10 +192,21 @@ impl Board {
             pointer_move_cb,
             anim_cb};
 
-        let divider = out.create("path")?;
-        divider.set_attribute("d", "M 0 180 L 200 180")?;
-        divider.class_list().add_1("divider")?;
-        out.svg.append_child(&divider)?;
+        let hand_region = out.create("rect")?;
+        hand_region.set_attribute("width", "95")?;
+        hand_region.set_attribute("height", "20")?;
+        hand_region.set_attribute("x", "0.0")?;
+        hand_region.set_attribute("y", "180.0")?;
+        hand_region.class_list().add_1("background")?;
+        out.svg.append_child(&hand_region)?;
+
+        let board_region = out.create("rect")?;
+        board_region.set_attribute("width", "200")?;
+        board_region.set_attribute("height", "175")?;
+        board_region.set_attribute("x", "0.0")?;
+        board_region.set_attribute("y", "0.0")?;
+        board_region.class_list().add_1("background")?;
+        out.svg.append_child(&board_region)?;
 
         Ok(out)
     }
