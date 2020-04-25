@@ -122,7 +122,7 @@ pub struct Board {
 
     grid: HashMap<(i32, i32), Piece>,
     tentative: HashMap<(i32, i32), usize>,
-    hand: Vec<Piece>,
+    hand: Vec<(Piece, Element)>,
 
     accept_button: HtmlButtonElement,
     reject_button: HtmlButtonElement,
@@ -469,18 +469,13 @@ impl Board {
     }
 
     fn add_hand(&mut self, p: Piece) -> JsError {
-        self.hand.push(p);
         let g = self.new_piece(p)?;
         g.class_list().add_1("piece")?;
         g.set_attribute("transform", &format!("translate({} 185)",
-                                              5 + 15 * (self.hand.len() - 1)))?;
-
-        let target = g.clone()
-            .dyn_into::<EventTarget>()
-            .expect("Could not convert into `EventTarget`");
-        target.add_event_listener_with_callback("pointerdown",
-                self.pointer_down_cb.as_ref().unchecked_ref())
-            .expect("Could not add event listener");
+                                              5 + 15 * self.hand.len()))?;
+        g.add_event_listener_with_callback("pointerdown",
+            self.pointer_down_cb.as_ref().unchecked_ref())?;
+        self.hand.push((p, g));
 
         Ok(())
     }
@@ -716,8 +711,7 @@ fn set_event_cb<E, F, T>(obj: &E, name: &str, f: F)
           T: FromWasmAbi + 'static
 {
     let cb = build_cb(f);
-    let target = obj.clone()
-        .dyn_into::<EventTarget>()
+    let target = obj.dyn_ref::<EventTarget>()
         .expect("Could not convert into `EventTarget`");
     target.add_event_listener_with_callback(name, cb.as_ref().unchecked_ref())
         .expect("Could not add event listener");
@@ -732,7 +726,7 @@ impl Connecting {
         self.base.clear_main_div()?;
 
         // Insta-join a room
-        //self.base.send(ClientMessage::CreateRoom("Matt".to_string()))?;
+        self.base.send(ClientMessage::CreateRoom("Matt".to_string()))?;
 
         // Return the new state
         CreateOrJoin::new(self.base)
