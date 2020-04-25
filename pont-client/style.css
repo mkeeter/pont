@@ -33,6 +33,16 @@ input {
     padding: 10px;
     margin-left: 10px;
 }
+
+/*  Shows an error if you connect to an invalid room */
+div#error {
+    color: var(--red);
+}
+span#err_span {
+    margin-left: 10px;
+}
+
+/*  Welcome to... the chat zone */
 div#chat_input {
     display:flex;
     flex-direction: row;
@@ -45,13 +55,6 @@ input#chat_input {
 div#chat_name {
     padding-top: 10px;
 }
-div#error {
-    color: var(--red);
-}
-span#err_span {
-    margin-left: 10px;
-}
-
 div#chat {
     height: 100px;
     overflow-y: auto;
@@ -67,12 +70,12 @@ div#chat_col {
 #chat span {
     margin-left: 5px;
 }
-
 p.msg {
     margin-top: 2px;
     margin-bottom: 2px;
 }
 
+/*  Button to join the game */
 button {
     background-color: var(--base3);
     border:1px solid var(--base1);
@@ -97,15 +100,13 @@ form:not(:invalid) button:hover {
     border-radius: 15px;
 }
 
+/*  Main game div */
 div#game {
     display: grid;
     column-gap: 20px;
 }
 
-tr.disconnected {
-    color: var(--base1);
-}
-
+/* List of players */
 table#scores {
     width: 100%;
     margin-bottom: 20px;
@@ -119,46 +120,35 @@ tr.player-row i {
 tr.player-row.active i {
     visibility: visible;
 }
+tr.disconnected {
+    color: var(--base1);
+}
 
+/*  Tiles on the board */
 g.placed rect.tile {
     fill: var(--base2);
     stroke-width: 0.5;
     stroke: var(--base1);
+}
+svg#game.nyt g.piece rect.tile {
+    fill: var(--base2);
 }
 g.piece rect.tile {
     fill: var(--base02);
     stroke-width: 0.5;
     stroke: var(--base00);
 }
+svg#game.nyt g.piece {
+    pointer-events: none;
+}
+g.piece {
+    pointer-events: auto;
+}
 rect.shadow {
     fill: var(--base2);
     stroke-width: 0.5;
     stroke: var(--base1);
 }
-
-button.gameplay {
-    color: var(--base02);
-    position: absolute;
-    height: 10%;
-    width: 10%;
-    font-size: 4vw;
-}
-button.gameplay:hover {
-    border-radius: 15px;
-}
-
-button#reject_button {
-    left: 100%;
-    top: 100%;
-    transform: translateY(-101%) translateX(-101%);
-}
-
-button#accept_button {
-    left: 100%;
-    top: 100%;
-    transform: translateY(-101%) translateX(-211%);
-}
-
 .shape-orange {
     fill: var(--orange);
 }
@@ -178,11 +168,40 @@ button#accept_button {
     fill: var(--violet);
 }
 
+/*  Buttons to submit your play */
+button.gameplay {
+    color: var(--base02);
+    position: absolute;
+    height: 10%;
+    width: 10%;
+    font-size: 4vw;
+}
+button.gameplay:disabled {
+    color: var(--base1);
+    background-color: var(--base2);
+    pointer-events: none;
+}
+button.gameplay:hover {
+    border-radius: 15px;
+}
+button#reject_button {
+    left: 100%;
+    top: 100%;
+    transform: translateY(-101%) translateX(-101%);
+}
+button#accept_button {
+    left: 100%;
+    top: 100%;
+    transform: translateY(-101%) translateX(-211%);
+}
+
+/*  This is only used for layout things */
 svg#dummy {
-    width: calc(100% - 2px); /* accounts for border */
+    width: 100%;
     pointer-events: none;
 }
 
+/*  Main game board */
 svg#game {
     position: absolute;
     width: 100%;
@@ -192,16 +211,12 @@ svg#game {
     pointer-events: none;
 }
 
-g.piece {
-    pointer-events: auto;
-}
-
+/*  Background divs to create nice sharp rectangles */
 div.background {
     position: absolute;
     border:1px solid var(--base1);
     background-color: var(--base3);
 }
-
 div#hand {
     left: 0px;
     top: calc(100% + 1px);
@@ -209,7 +224,6 @@ div#hand {
     width: calc(47.5% - 2px);
     height: 10%;
 }
-
 div#board {
     left: 0px;
     top: 0px;
@@ -220,12 +234,6 @@ div#board {
 div#svg {
     margin-bottom: 10px;
     position: relative;
-}
-
-path.divider {
-    stroke-width: 1px;
-    stroke: var(--base1);
-    vector-effect: non-scaling-stroke;
 }
 
 /* Two-column layout */

@@ -124,6 +124,9 @@ pub struct Board {
     tentative: HashMap<(i32, i32), usize>,
     hand: Vec<Piece>,
 
+    accept_button: HtmlButtonElement,
+    reject_button: HtmlButtonElement,
+
     pointer_down_cb: Closure<dyn FnMut(PointerEvent)>,
     pointer_move_cb: Closure<dyn FnMut(PointerEvent)>,
     pointer_up_cb: Closure<dyn FnMut(PointerEvent)>,
@@ -167,6 +170,7 @@ impl Board {
         accept_button.set_inner_html("<i class=\"fas fa-check\"></i>");
         accept_button.set_id("accept_button");
         accept_button.set_class_name("gameplay");
+        accept_button.set_disabled(true);
         svg_div.append_child(&accept_button)?;
         set_event_cb(&accept_button, "click", move |e: Event| {
             e.prevent_default();
@@ -178,6 +182,7 @@ impl Board {
         reject_button.set_inner_html("<i class=\"fas fa-times\"></i>");
         reject_button.set_id("reject_button");
         reject_button.set_class_name("gameplay");
+        reject_button.set_disabled(true);
         svg_div.append_child(&reject_button)?;
 
         svg_div.append_child(&svg)?;
@@ -215,9 +220,20 @@ impl Board {
             pointer_down_cb,
             pointer_up_cb,
             pointer_move_cb,
-            anim_cb};
+            anim_cb,
+            accept_button,
+            reject_button,
+        };
 
         Ok(out)
+    }
+
+    fn set_my_turn(&mut self, is_my_turn: bool) -> JsError {
+        if is_my_turn {
+            self.svg.class_list().remove_1("nyt")
+        } else {
+            self.svg.class_list().add_1("nyt")
+        }
     }
 
     fn get_transform(e: &Element) -> (f32, f32) {
@@ -425,6 +441,8 @@ impl Board {
                 } else {
                     self.svg.remove_child(&d.shadow)?;
                     self.drag = DragState::Idle;
+                    self.accept_button.set_disabled(false);
+                    self.reject_button.set_disabled(false);
                 }
             },
             DragState::ReturnToHand(d) => {
@@ -435,6 +453,10 @@ impl Board {
                                                  .unchecked_ref())?;
                 } else {
                     self.drag = DragState::Idle;
+                    if self.tentative.len() == 0 {
+                        self.accept_button.set_disabled(true);
+                        self.reject_button.set_disabled(true);
+                    }
                 }
             }
             _ => panic!("Invalid state"),
@@ -710,7 +732,7 @@ impl Connecting {
         self.base.clear_main_div()?;
 
         // Insta-join a room
-        self.base.send(ClientMessage::CreateRoom("Matt".to_string()))?;
+        //self.base.send(ClientMessage::CreateRoom("Matt".to_string()))?;
 
         // Return the new state
         CreateOrJoin::new(self.base)
@@ -811,11 +833,14 @@ impl CreateOrJoin {
     }
 
     fn on_joined_room(self, room_name: &str, players: &[(String, u32, bool)],
-                      active_players: usize, board: &HashMap<(i32, i32), Piece>,
+                      active_player: usize, board: &HashMap<(i32, i32), Piece>,
                       pieces: &[Piece]) -> JsResult<Playing>
     {
         self.base.clear_main_div()?;
-        Playing::new(self.base, room_name, players, active_players, board, pieces)
+        let mut p = Playing::new(self.base, room_name, players,
+                                 active_player, board, pieces)?;
+        p.on_player_turn(active_player)?;
+        Ok(p)
     }
 
     fn on_join_button(&self) -> JsError {
@@ -959,7 +984,7 @@ impl Playing {
                 } else {
                     name.to_string()
                 },
-                *score as usize, i == active_player, *connected)?;
+                *score as usize, *connected)?;
         }
         Ok(out)
     }
@@ -999,15 +1024,11 @@ impl Playing {
         Ok(())
     }
 
-    fn add_player_row(&self, name: String, score: usize,
-                      active: bool, connected: bool)
+    fn add_player_row(&self, name: String, score: usize, connected: bool)
         -> JsError
     {
         let tr = self.base.doc.create_element("tr")?;
         tr.set_class_name("player-row");
-        if active {
-            tr.class_list().add_1("active")?;
-        }
 
         let td = self.base.doc.create_element("td")?;
         let i = self.base.doc.create_element("i")?;
@@ -1044,7 +1065,7 @@ impl Playing {
 
     fn on_new_player(&self, name: &str) -> JsError {
         // Append a player to the bottom of the scores list
-        self.add_player_row(name.to_string(), 0, false, true)?;
+        self.add_player_row(name.to_string(), 0, true)?;
         self.on_information(&format!("{} joined the room", name))
     }
 
@@ -1071,7 +1092,9 @@ impl Playing {
             .unwrap()
             .dyn_into::<HtmlElement>()?
             .class_list()
-            .add_1("active")
+            .add_1("active")?;
+
+        self.board.set_my_turn(active_player == self.player_index)
     }
 
     fn on_anim(&mut self, t: f64) -> JsError {
