@@ -236,7 +236,7 @@ impl Board {
         }
     }
 
-    fn get_transform(e: &Element) -> (f32, f32) {
+    fn get_transform(e: &Element) -> Pos {
         let t = e.get_attribute("transform").unwrap();
         let s = t.chars()
             .filter(|&c| c.is_digit(10) || c == ' ' || c == '.' || c == '-')
@@ -250,10 +250,19 @@ impl Board {
         (dx, dy)
     }
 
-    fn mouse_pos(&self, evt: &PointerEvent) -> (f32, f32) {
+    fn mouse_pos(&self, evt: &PointerEvent, offset: Pos) -> Pos {
         let mat = self.svg.get_screen_ctm().unwrap();
-        let x = (evt.client_x() as f32 - mat.e()) / mat.a();
-        let y = (evt.client_y() as f32 - mat.f()) / mat.d();
+        let mut x = (evt.client_x() as f32 - mat.e()) / mat.a() - offset.0;
+        let mut y = (evt.client_y() as f32 - mat.f()) / mat.d() - offset.1;
+
+        for c in [&mut x, &mut y].iter_mut() {
+            if **c < 0.0 {
+                **c = 0.0;
+            } else if **c > 190.0 {
+                **c = 190.0;
+            }
+        }
+
         (x, y)
     }
 
@@ -273,8 +282,10 @@ impl Board {
         // Shadow goes underneath the dragged piece
         let shadow = self.create("rect")?;
         shadow.class_list().add_1("shadow")?;
-        shadow.set_attribute("width", "10.0")?;
-        shadow.set_attribute("height", "10.0")?;
+        shadow.set_attribute("width", "9.5")?;
+        shadow.set_attribute("height", "9.5")?;
+        shadow.set_attribute("x", "0.25")?;
+        shadow.set_attribute("y", "0.25")?;
         shadow.set_attribute("visibility", "hidden")?;
         self.svg.append_child(&shadow)?;
 
@@ -293,7 +304,7 @@ impl Board {
         target.add_event_listener_with_callback("pointerup",
                 self.pointer_up_cb.as_ref().unchecked_ref())
             .expect("Could not add event listener");
-        let (mx, my) = self.mouse_pos(&evt);
+        let (mx, my) = self.mouse_pos(&evt, (0.0, 0.0));
         let (dx, dy) = Self::get_transform(&target);
 
         let x = dx.round() as i32;
@@ -322,10 +333,8 @@ impl Board {
     fn on_pointer_move(&self, evt: PointerEvent) -> JsError {
         if let DragState::Dragging(d) = &self.drag {
             evt.prevent_default();
-            let (mx, my) = self.mouse_pos(&evt);
+            let (x, y) = self.mouse_pos(&evt, d.offset);
 
-            let x = mx - d.offset.0;
-            let y = my - d.offset.1;
             d.target.set_attribute("transform",
                                    &format!("translate({} {})", x, y))?;
             let tx = (x / 10.0).round() as i32;
@@ -337,8 +346,8 @@ impl Board {
             if ty < 18 && !overlapping && !offscreen {
                 let x = tx as f32 * 10.0;
                 let y = ty as f32 * 10.0;
-                d.shadow.set_attribute("x", &x.to_string())?;
-                d.shadow.set_attribute("y", &y.to_string())?;
+                d.shadow.set_attribute("transform",
+                                   &format!("translate({} {})", x, y))?;
                 d.shadow.set_attribute("visibility", "visible")?;
             } else {
                 d.shadow.set_attribute("visibility", "hidden")?;
@@ -351,10 +360,7 @@ impl Board {
         console_log!("pointer up {:?}", evt);
         if let DragState::Dragging(d) = &self.drag {
             evt.prevent_default();
-            let (mx, my) = self.mouse_pos(&evt);
-
-            let x = mx - d.offset.0;
-            let y = my - d.offset.1;
+            let (x, y) = self.mouse_pos(&evt, d.offset);
 
             d.target.remove_event_listener_with_callback("pointermove",
                     self.pointer_move_cb.as_ref().unchecked_ref())
@@ -453,7 +459,7 @@ impl Board {
                                                  .unchecked_ref())?;
                 } else {
                     self.drag = DragState::Idle;
-                    if self.tentative.len() == 0 {
+                    if self.tentative.is_empty() {
                         self.accept_button.set_disabled(true);
                         self.reject_button.set_disabled(true);
                     }
@@ -484,8 +490,10 @@ impl Board {
         let g = self.create("g")?;
         let r = self.create("rect")?;
         r.class_list().add_1("tile")?;
-        r.set_attribute("width", "10.0")?;
-        r.set_attribute("height", "10.0")?;
+        r.set_attribute("width", "9.5")?;
+        r.set_attribute("height", "9.5")?;
+        r.set_attribute("x", "0.25")?;
+        r.set_attribute("y", "0.25")?;
         let s = match p.0 {
             Shape::Circle => {
                 let s = self.create("circle")?;
@@ -959,7 +967,7 @@ impl Playing {
             chat_div,
             score_table,
             player_index,
-            active_player: active_player,
+            active_player,
 
             _keyup_cb: keyup_cb,
         };
@@ -967,7 +975,7 @@ impl Playing {
         for ((x, y), p) in in_board.iter() {
             out.board.add_piece(*p, *x, *y)?;
         }
-        for p in pieces.into_iter() {
+        for p in pieces.iter() {
             out.board.add_hand(*p)?;
         }
 
