@@ -376,9 +376,15 @@ impl Board {
             let tx = (x / 10.0).round() as i32;
             let ty = (y / 10.0).round() as i32;
 
+            let offboard = {
+                let x = tx as f32 * 10.0 + self.pan_offset.0;
+                let y = ty as f32 * 10.0 + self.pan_offset.1;
+                x < 0.0 || y < 0.0 || y > 165.0 || x >= 190.0
+            };
+
             let overlapping = self.grid.contains_key(&(tx, ty)) ||
                               self.tentative.contains_key(&(tx, ty));
-            if !overlapping {
+            if !overlapping && !offboard {
                 return Ok((pos, DropTarget::DropToGrid(tx, ty)));
             }
 
