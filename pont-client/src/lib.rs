@@ -118,12 +118,17 @@ struct DragPan {
     start: Pos,
 }
 
+struct ReturnManyToHand {
+    anims: Vec<TileAnimation>,
+}
+
 enum DragState {
     Idle,
     Dragging(Dragging),
     DropToGrid(DropToGrid),
     ReturnToHand(ReturnToHand),
     DragPan(DragPan),
+    ReturnManyToHand(ReturnManyToHand),
 }
 
 pub struct Board {
@@ -575,7 +580,23 @@ impl Board {
                         self.reject_button.set_disabled(true);
                     }
                 }
-            }
+            },
+            DragState::ReturnManyToHand(d) => {
+                let mut any_running = false;
+                for a in d.anims.iter() {
+                    any_running |= a.run(t)?;
+                }
+                if any_running {
+                    web_sys::window()
+                        .expect("no global `window` exists")
+                        .request_animation_frame(self.anim_cb.as_ref()
+                                                 .unchecked_ref())?;
+                } else {
+                    self.drag = DragState::Idle;
+                    self.accept_button.set_disabled(true);
+                    self.reject_button.set_disabled(true);
+                }
+            },
             _ => panic!("Invalid state"),
         }
         Ok(())
@@ -690,8 +711,46 @@ impl Board {
         let g = self.new_piece(p)?;
         self.pan_group.append_child(&g)?;
         g.class_list().add_1("placed")?;
-        g.set_attribute("transform", &format!("translate({} {})", x * 10, y * 10))?;
+        g.set_attribute("transform",
+                        &format!("translate({} {})", x * 10, y * 10))?;
 
+        Ok(())
+    }
+
+    fn on_reject_button(&mut self, evt: Event) -> JsError {
+        // Don't allow for any tricky business here
+        match self.drag {
+            DragState::Idle => (),
+            _ => return Ok(()),
+        }
+
+        let mut tiles = HashMap::new();
+        std::mem::swap(&mut self.tentative, &mut tiles);
+        for (_, i) in &tiles {
+            let t = &self.hand[*i].1;
+            self.pan_group.remove_child(t)?;
+            let (dx, dy) = Self::get_transform(t);
+            t.set_attribute(
+                "transform", &format!("translate({} {})",
+                        dx - self.pan_offset.0,
+                        dy - self.pan_offset.1))?;
+            self.svg.append_child(t)?;
+        }
+        self.drag = DragState::ReturnManyToHand(ReturnManyToHand {
+            anims: tiles.drain().map(|((tx, ty), i)|
+                TileAnimation {
+                    target: self.hand[i].1.clone(),
+                    start: (tx as f32 * 10.0 + self.pan_offset.0,
+                            ty as f32 * 10.0 + self.pan_offset.1),
+                    end: ((i * 15 + 5) as f32, 185.0),
+                    t0: evt.time_stamp()
+                }).collect()});
+        self.tentative.clear();
+
+        web_sys::window()
+            .expect("no global `window` exists")
+            .request_animation_frame(self.anim_cb.as_ref()
+                                     .unchecked_ref())?;
         Ok(())
     }
 }
@@ -791,6 +850,7 @@ impl State {
             on_pan_start(evt: PointerEvent),
             on_pan_move(evt: PointerEvent),
             on_pan_end(evt: PointerEvent),
+            on_reject_button(evt: Event),
             on_anim(t: f64),
             on_send_chat(),
             on_chat(from: &str, msg: &str),
@@ -1236,6 +1296,10 @@ impl Playing {
 
     fn on_pointer_up(&mut self, evt: PointerEvent) -> JsError {
         self.board.on_pointer_up(evt)
+    }
+
+    fn on_reject_button(&mut self, evt: Event) -> JsError {
+        self.board.on_reject_button(evt)
     }
 }
 
