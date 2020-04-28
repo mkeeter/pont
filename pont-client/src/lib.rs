@@ -113,11 +113,16 @@ struct ReturnToHand {
     anim: TileAnimation,
 }
 
+struct DragPan {
+    start: Pos,
+}
+
 enum DragState {
     Idle,
     Dragging(Dragging),
     DropToGrid(DropToGrid),
     ReturnToHand(ReturnToHand),
+    DragPan(DragPan),
 }
 
 pub struct Board {
@@ -139,6 +144,10 @@ pub struct Board {
     pointer_down_cb: Closure<dyn FnMut(PointerEvent)>,
     pointer_move_cb: Closure<dyn FnMut(PointerEvent)>,
     pointer_up_cb: Closure<dyn FnMut(PointerEvent)>,
+
+    pan_move_cb: Closure<dyn FnMut(PointerEvent)>,
+    pan_end_cb: Closure<dyn FnMut(PointerEvent)>,
+
     anim_cb: Closure<dyn FnMut(f64)>,
 }
 
@@ -158,6 +167,22 @@ impl Board {
         svg.set_attribute("width", "100")?;
         svg.set_attribute("hight", "100")?;
         svg.set_attribute("viewBox", "0 0 200 200")?;
+
+        // Add a transparent background rectangle which is used for panning
+        let pan_rect = doc.create_element_ns(
+                Some("http://www.w3.org/2000/svg"), "rect")?
+            .dyn_into::<Element>()?;
+        pan_rect.set_attribute("width", "200")?;
+        pan_rect.set_attribute("height", "175")?;
+        pan_rect.set_attribute("x", "0")?;
+        pan_rect.set_attribute("y", "0")?;
+        svg.append_child(&pan_rect)?;
+        pan_rect.class_list().add_1("transparent")?;
+        set_event_cb(&pan_rect, "pointerdown", move |evt: PointerEvent| {
+            HANDLE.lock().unwrap()
+                .on_pan_start(evt)
+                .expect("Failed to pan_start event");
+        }).forget();
 
         let pan_group = doc.create_element_ns(
                 Some("http://www.w3.org/2000/svg"), "g")?
@@ -226,6 +251,16 @@ impl Board {
                 .on_anim(evt)
                 .expect("Failed to anim event");
         });
+        let pan_move_cb = build_cb(move |evt: PointerEvent| {
+            HANDLE.lock().unwrap()
+                .on_pan_move(evt)
+                .expect("Failed to anim event");
+        });
+        let pan_end_cb = build_cb(move |evt: PointerEvent| {
+            HANDLE.lock().unwrap()
+                .on_pan_end(evt)
+                .expect("Failed to anim event");
+        });
 
         let out = Board {
             doc: doc.clone(),
@@ -238,6 +273,8 @@ impl Board {
             pointer_down_cb,
             pointer_up_cb,
             pointer_move_cb,
+            pan_move_cb,
+            pan_end_cb,
             anim_cb,
             accept_button,
             reject_button,
@@ -273,6 +310,52 @@ impl Board {
         let x = (evt.client_x() as f32 - mat.e()) / mat.a();
         let y = (evt.client_y() as f32 - mat.f()) / mat.d();
         (x, y)
+    }
+
+    fn on_pan_start(&mut self, evt: PointerEvent) -> JsError {
+        match self.drag {
+            DragState::Idle => (),
+            _ => return Ok(()),
+        }
+        let p = self.mouse_pos(&evt);
+        self.drag = DragState::DragPan(DragPan {
+            start: (p.0 - self.pan_offset.0, p.1 - self.pan_offset.1)});
+
+        let target = evt.target()
+            .unwrap()
+            .dyn_into::<Element>()?;
+
+        target.set_pointer_capture(evt.pointer_id())?;
+        target.add_event_listener_with_callback("pointermove",
+                self.pan_move_cb.as_ref().unchecked_ref())?;
+        target.add_event_listener_with_callback("pointerup",
+                self.pan_end_cb.as_ref().unchecked_ref())?;
+        Ok(())
+    }
+
+    fn on_pan_move(&mut self, evt: PointerEvent) -> JsError {
+        if let DragState::DragPan(d) = &self.drag {
+            let p = self.mouse_pos(&evt);
+            self.pan_offset = (p.0 - d.start.0, p.1 - d.start.1);
+            self.pan_group.set_attribute("transform",
+                                   &format!("translate({} {})",
+                                   self.pan_offset.0,
+                                   self.pan_offset.1))
+        } else {
+            Err(JsValue::from_str("Invalid state"))
+        }
+    }
+
+    fn on_pan_end(&mut self, evt: PointerEvent) -> JsError {
+        let target = evt.target()
+            .unwrap()
+            .dyn_into::<Element>()?;
+        target.remove_event_listener_with_callback("pointermove",
+                self.pan_move_cb.as_ref().unchecked_ref())?;
+        target.remove_event_listener_with_callback("pointerup",
+                self.pan_end_cb.as_ref().unchecked_ref())?;
+        self.drag = DragState::Idle;
+        Ok(())
     }
 
     fn on_pointer_down(&mut self, evt: PointerEvent) -> JsError {
@@ -328,11 +411,9 @@ impl Board {
 
         target.set_pointer_capture(evt.pointer_id())?;
         target.add_event_listener_with_callback("pointermove",
-                self.pointer_move_cb.as_ref().unchecked_ref())
-            .expect("Could not add event listener");
+                self.pointer_move_cb.as_ref().unchecked_ref())?;
         target.add_event_listener_with_callback("pointerup",
-                self.pointer_up_cb.as_ref().unchecked_ref())
-            .expect("Could not add event listener");
+                self.pointer_up_cb.as_ref().unchecked_ref())?;
 
         self.drag = DragState::Dragging(Dragging {
             target,
@@ -424,11 +505,9 @@ impl Board {
             evt.prevent_default();
 
             d.target.remove_event_listener_with_callback("pointermove",
-                    self.pointer_move_cb.as_ref().unchecked_ref())
-                .expect("Could not remove event listener");
+                    self.pointer_move_cb.as_ref().unchecked_ref())?;
             d.target.remove_event_listener_with_callback("pointerup",
-                    self.pointer_up_cb.as_ref().unchecked_ref())
-                .expect("Could not remove event listener");
+                    self.pointer_up_cb.as_ref().unchecked_ref())?;
 
             let (pos, drop_target) = self.drop_target(&evt)?;
             self.drag = match drop_target {
@@ -710,6 +789,9 @@ impl State {
             on_pointer_down(evt: PointerEvent),
             on_pointer_up(evt: PointerEvent),
             on_pointer_move(evt: PointerEvent),
+            on_pan_start(evt: PointerEvent),
+            on_pan_move(evt: PointerEvent),
+            on_pan_end(evt: PointerEvent),
             on_anim(t: f64),
             on_send_chat(),
             on_chat(from: &str, msg: &str),
@@ -1134,6 +1216,18 @@ impl Playing {
 
     fn on_anim(&mut self, t: f64) -> JsError {
         self.board.on_anim(t)
+    }
+
+    fn on_pan_start(&mut self, evt: PointerEvent) -> JsError {
+        self.board.on_pan_start(evt)
+    }
+
+    fn on_pan_move(&mut self, evt: PointerEvent) -> JsError {
+        self.board.on_pan_move(evt)
+    }
+
+    fn on_pan_end(&mut self, evt: PointerEvent) -> JsError {
+        self.board.on_pan_end(evt)
     }
 
     fn on_pointer_down(&mut self, evt: PointerEvent) -> JsError {

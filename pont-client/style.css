@@ -149,6 +149,10 @@ rect.shadow {
     stroke-width: 0.5;
     stroke: var(--base1);
 }
+rect.transparent {
+    fill: none;
+    pointer-events: all;
+}
 .shape-orange {
     fill: var(--orange);
 }
