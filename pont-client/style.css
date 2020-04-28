@@ -128,7 +128,7 @@ tr.disconnected {
 
 /*  Tiles on the board */
 g.placed rect.tile {
-    fill: var(--light1);
+    fill: var(--dark3);
     stroke-width: 0.5;
     stroke: var(--dark4);
 }

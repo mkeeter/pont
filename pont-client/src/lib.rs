@@ -2,7 +2,7 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::convert::FromWasmAbi;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use web_sys::{
     Element,
@@ -244,10 +244,9 @@ impl Board {
         accept_button.set_class_name("gameplay");
         accept_button.set_disabled(true);
         svg_div.append_child(&accept_button)?;
-        set_event_cb(&accept_button, "click", move |e: Event| {
-            e.prevent_default();
-            console_log!("CLICKED");
-            Ok(())
+        set_event_cb(&accept_button, "click", move |evt: Event| {
+            HANDLE.lock().unwrap()
+                .on_accept_button(evt)
         }).forget();
 
         let reject_button = doc.create_element("button")?
@@ -774,6 +773,34 @@ impl Board {
                                      .unchecked_ref())?;
         Ok(())
     }
+
+    /*  Attempts to make the given move.
+     *  If the move is valid (TODO), returns the indexes of placed pieces
+     *  (as hand indexes), which can be passed up to the server.
+     *
+     *  Also kicks off an animation to consolidate all pieces. */
+    fn make_move(&mut self, _evt: Event) -> JsResult<Vec<(usize, i32, i32)>> {
+        let mut ts = HashMap::new();
+        std::mem::swap(&mut ts, &mut self.tentative);
+        let mut removed = HashSet::new();
+        let mut out = Vec::new();
+        for ((x, y), i) in ts.drain() {
+            let (piece, element) = self.hand[i].clone();
+            element.class_list().remove_1("piece")?;
+            element.class_list().add_1("placed")?;
+            element.remove_event_listener_with_callback("pointerdown",
+                self.pointer_down_cb.as_ref().unchecked_ref())?;
+            self.grid.insert((x, y), piece);
+            removed.insert(i);
+            out.push((i, x, y));
+        }
+
+        // Disable buttons until we hear back from the server
+        self.accept_button.set_disabled(true);
+        self.reject_button.set_disabled(true);
+        Ok(out)
+    }
+
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -871,6 +898,7 @@ impl State {
             on_pan_start(evt: PointerEvent),
             on_pan_move(evt: PointerEvent),
             on_pan_end(evt: PointerEvent),
+            on_accept_button(evt: Event),
             on_reject_button(evt: Event),
             on_anim(t: f64),
             on_send_chat(),
@@ -1321,6 +1349,11 @@ impl Playing {
 
     fn on_reject_button(&mut self, evt: Event) -> JsError {
         self.board.on_reject_button(evt)
+    }
+
+    fn on_accept_button(&mut self, evt: Event) -> JsError {
+        self.board.make_move(evt)?;
+        Ok(())
     }
 }
 
