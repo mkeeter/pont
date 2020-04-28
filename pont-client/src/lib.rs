@@ -31,6 +31,16 @@ type JsResult<T> = Result<T, JsValue>;
 type JsError = Result<(), JsValue>;
 type JsClosure<T> = Closure<dyn FnMut(T) -> JsError>;
 
+trait DocExt {
+    fn create_svg_element(&self, t: &str) -> JsResult<Element>;
+}
+
+impl DocExt for Document {
+    fn create_svg_element(&self, t: &str) -> JsResult<Element> {
+        self.create_element_ns(Some("http://www.w3.org/2000/svg"), t)
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 macro_rules! methods {
@@ -159,40 +169,55 @@ pub struct Board {
 
 impl Board {
     fn new(doc: &Document, game_div: &HtmlElement) -> JsResult<Board> {
-        let dummy = doc.create_element_ns(
-                Some("http://www.w3.org/2000/svg"), "svg")?
+        let dummy = doc.create_svg_element("svg")?
             .dyn_into::<SvgGraphicsElement>()?;
         dummy.set_attribute("viewBox", "0 0 200 200")?;
         dummy.set_id("dummy");
 
         // Add an SVG
-        let svg = doc.create_element_ns(
-                Some("http://www.w3.org/2000/svg"), "svg")?
+        let svg = doc.create_svg_element("svg")?
             .dyn_into::<SvgGraphicsElement>()?;
         svg.set_id("game");
         svg.set_attribute("width", "100")?;
         svg.set_attribute("hight", "100")?;
         svg.set_attribute("viewBox", "0 0 200 200")?;
 
+
+        // Add a clipping rectangle so that tiles don't drag outside
+        // the main playing area
+        let clip_defs = doc.create_svg_element("defs")?;
+        let clip_path = doc.create_svg_element("clipPath")?;
+        clip_path.set_id("clip_rect");
+        let clip_rect = doc.create_svg_element("rect")?
+            .dyn_into::<Element>()?;
+        clip_rect.set_attribute("width", "200")?;
+        clip_rect.set_attribute("height", "175")?;
+        clip_rect.set_attribute("x", "0")?;
+        clip_rect.set_attribute("y", "0")?;
+        clip_path.append_child(&clip_rect)?;
+        clip_defs.append_child(&clip_path)?;
+        svg.append_child(&clip_defs)?;
+
         // Add a transparent background rectangle which is used for panning
-        let pan_rect = doc.create_element_ns(
-                Some("http://www.w3.org/2000/svg"), "rect")?
+        let pan_rect = doc.create_svg_element("rect")?
             .dyn_into::<Element>()?;
         pan_rect.set_attribute("width", "200")?;
         pan_rect.set_attribute("height", "175")?;
         pan_rect.set_attribute("x", "0")?;
         pan_rect.set_attribute("y", "0")?;
         svg.append_child(&pan_rect)?;
-        pan_rect.class_list().add_1("transparent")?;
+        pan_rect.set_id("transparent");
         set_event_cb(&pan_rect, "pointerdown", move |evt: PointerEvent| {
             HANDLE.lock().unwrap()
                 .on_pan_start(evt)
         }).forget();
 
-        let pan_group = doc.create_element_ns(
-                Some("http://www.w3.org/2000/svg"), "g")?
+        let clip_group = doc.create_svg_element("g")?;
+        clip_group.set_attribute("clip-path", "url(#clip_rect)")?;
+        let pan_group = doc.create_svg_element("g")?
             .dyn_into::<Element>()?;
-        svg.append_child(&pan_group)?;
+        clip_group.append_child(&pan_group)?;
+        svg.append_child(&clip_group)?;
         let pan_offset = (5.0, 7.5);
         pan_group.set_attribute(
             "transform",
@@ -376,7 +401,7 @@ impl Board {
             .dyn_into::<Element>()?;
 
         // Shadow goes underneath the dragged piece
-        let shadow = self.create("rect")?;
+        let shadow = self.doc.create_svg_element("rect")?;
         shadow.class_list().add_1("shadow")?;
         shadow.set_attribute("width", "9.5")?;
         shadow.set_attribute("height", "9.5")?;
@@ -602,10 +627,6 @@ impl Board {
         Ok(())
     }
 
-    fn create(&self, t: &str) -> JsResult<Element> {
-        self.doc.create_element_ns(Some("http://www.w3.org/2000/svg"), t)
-    }
-
     fn add_hand(&mut self, p: Piece) -> JsError {
         let g = self.new_piece(p)?;
         self.svg.append_child(&g)?;
@@ -620,8 +641,8 @@ impl Board {
     }
 
     fn new_piece(&self, p: Piece) -> JsResult<Element> {
-        let g = self.create("g")?;
-        let r = self.create("rect")?;
+        let g = self.doc.create_svg_element("g")?;
+        let r = self.doc.create_svg_element("rect")?;
         r.class_list().add_1("tile")?;
         r.set_attribute("width", "9.5")?;
         r.set_attribute("height", "9.5")?;
@@ -629,14 +650,14 @@ impl Board {
         r.set_attribute("y", "0.25")?;
         let s = match p.0 {
             Shape::Circle => {
-                let s = self.create("circle")?;
+                let s = self.doc.create_svg_element("circle")?;
                 s.set_attribute("r", "3.0")?;
                 s.set_attribute("cx", "5.0")?;
                 s.set_attribute("cy", "5.0")?;
                 s
             },
             Shape::Square => {
-                let s = self.create("rect")?;
+                let s = self.doc.create_svg_element("rect")?;
                 s.set_attribute("width", "6.0")?;
                 s.set_attribute("height", "6.0")?;
                 s.set_attribute("x", "2.0")?;
@@ -644,23 +665,23 @@ impl Board {
                 s
             }
             Shape::Clover => {
-                let s = self.create("g")?;
+                let s = self.doc.create_svg_element("g")?;
                 for (x, y) in &[(5.0, 3.0), (5.0, 7.0), (3.0, 5.0), (7.0, 5.0)]
                 {
-                    let c = self.create("circle")?;
+                    let c = self.doc.create_svg_element("circle")?;
                     c.set_attribute("r", "1.5")?;
                     c.set_attribute("cx", &x.to_string())?;
                     c.set_attribute("cy", &y.to_string())?;
                     s.append_child(&c)?;
                 }
-                let r = self.create("rect")?;
+                let r = self.doc.create_svg_element("rect")?;
                 r.set_attribute("width", "4.0")?;
                 r.set_attribute("height", "3.0")?;
                 r.set_attribute("x", "3.0")?;
                 r.set_attribute("y", "3.5")?;
                 s.append_child(&r)?;
 
-                let r = self.create("rect")?;
+                let r = self.doc.create_svg_element("rect")?;
                 r.set_attribute("width", "3.0")?;
                 r.set_attribute("height", "4.0")?;
                 r.set_attribute("x", "3.5")?;
@@ -670,21 +691,21 @@ impl Board {
                 s
             }
             Shape::Diamond => {
-                let s = self.create("polygon")?;
+                let s = self.doc.create_svg_element("polygon")?;
                 s.set_attribute("points", "2,5 5,8 8,5 5,2")?;
                 s
             }
             Shape::Cross => {
-                let s = self.create("polygon")?;
+                let s = self.doc.create_svg_element("polygon")?;
                 s.set_attribute("points", "2,2 3.5,5 2,8 5,6.5 8,8 6.5,5 8,2 5,3.5")?;
                 s
             }
             Shape::Star => {
-                let g = self.create("g")?;
-                let s = self.create("polygon")?;
+                let g = self.doc.create_svg_element("g")?;
+                let s = self.doc.create_svg_element("polygon")?;
                 s.set_attribute("points", "3,3 4,5 3,7 5,6 7,7 6,5 7,3 5,4")?;
                 g.append_child(&s)?;
-                let s = self.create("polygon")?;
+                let s = self.doc.create_svg_element("polygon")?;
                 s.set_attribute("points", "1,5 4,6 5,9 6,6 9,5 6,4 5,1 4,4")?;
                 g.append_child(&s)?;
                 g

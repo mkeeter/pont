@@ -151,7 +151,7 @@ rect.shadow {
     stroke-width: 0.5;
     stroke: var(--light2);
 }
-rect.transparent {
+rect#transparent {
     fill: none;
     pointer-events: all;
 }
