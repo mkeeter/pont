@@ -1,35 +1,37 @@
 :root {
-    --base03: #002b36;
-    --base02: #073642;
-    --base01: #586e75;
-    --base00: #657b83;
-    --base0: #839496;
-    --base1: #93a1a1;
-    --base2: #eee8d5;
-    --base3: #fdf6e3;
-    --yellow: #b58900;
-    --orange: #cb4b16;
-    --red: #dc322f;
-    --magenta: #d33682;
-    --violet: #6c71c4;
-    --blue: #268bd2;
-    --cyan: #2aa198;
-    --green: #859900;
+    --dark0: #1d2021;
+    --dark1: #3c3836;
+    --dark2: #504945;
+    --dark3: #665c54;
+    --dark4: #7c6f64;
+
+    --light4: #a89984;
+    --light3: #bdae93;
+    --light2: #d5c4a1;
+    --light1: #ebdbb2;
+    --light0: #fbf1c7;
+
+    --yellow: #fabd2f;
+    --orange: #fe8019;
+    --violet: #d3869b;
+    --blue: #83a598;
+    --green: #b8bb26;
+    --red: #fb4934;
 }
 
 body {
     font-family: Inconsolata, "Courier New", monospace;
     font-size: 16px;
-    color: var(--base01);
+    color: var(--dark2);
     margin-left: 20px;
     margin-right: 20px;
-    background-color: var(--base2);
+    background-color: var(--light1);
 }
 input {
     font-family: Inconsolata, "Courier New", monospace;
     font-size: 16px;
-    background-color: var(--base3);
-    border:1px solid var(--base1);
+    background-color: var(--light0);
+    border:1px solid var(--dark4);
     padding: 10px;
     margin-left: 10px;
 }
@@ -58,8 +60,8 @@ div#chat_name {
 div#chat {
     height: 100px;
     overflow-y: auto;
-    border:1px solid var(--base1);
-    background-color: var(--base3);
+    border:1px solid var(--dark4);
+    background-color: var(--light0);
     padding: 10px;
 }
 div#chat_col {
@@ -77,8 +79,8 @@ p.msg {
 
 /*  Button to join the game */
 button {
-    background-color: var(--base3);
-    border:1px solid var(--base1);
+    background-color: var(--light0);
+    border:1px solid var(--dark4);
     border-radius: 5px;
     transition: border-radius 0.1s;
 }
@@ -92,8 +94,8 @@ form button {
 }
 
 form:invalid button {
-    color: var(--base1);
-    background-color: var(--base2);
+    color: var(--dark4);
+    background-color: var(--light1);
 }
 
 form:not(:invalid) button:hover {
@@ -112,7 +114,7 @@ table#scores {
     margin-bottom: 20px;
 }
 th {
-    border-bottom: 1px solid var(--base00);
+    border-bottom: 1px solid var(--dark4);
 }
 tr.player-row i {
     visibility: hidden;
@@ -121,22 +123,22 @@ tr.player-row.active i {
     visibility: visible;
 }
 tr.disconnected {
-    color: var(--base1);
+    color: var(--dark4);
 }
 
 /*  Tiles on the board */
 g.placed rect.tile {
-    fill: var(--base2);
+    fill: var(--light1);
     stroke-width: 0.5;
-    stroke: var(--base1);
+    stroke: var(--dark4);
 }
 svg#game.nyt g.piece rect.tile {
-    fill: var(--base2);
+    fill: var(--dark3);
 }
 g.piece rect.tile {
-    fill: var(--base02);
+    fill: var(--dark1);
     stroke-width: 0.5;
-    stroke: var(--base00);
+    stroke: var(--dark4);
 }
 svg#game.nyt g.piece {
     pointer-events: none;
@@ -145,9 +147,9 @@ g.piece {
     pointer-events: auto;
 }
 rect.shadow {
-    fill: var(--base2);
+    fill: var(--light1);
     stroke-width: 0.5;
-    stroke: var(--base1);
+    stroke: var(--light2);
 }
 rect.transparent {
     fill: none;
@@ -174,15 +176,15 @@ rect.transparent {
 
 /*  Buttons to submit your play */
 button.gameplay {
-    color: var(--base02);
+    color: var(--dark1);
     position: absolute;
     height: 10%;
     width: 10%;
     font-size: 4vw;
 }
 button.gameplay:disabled {
-    color: var(--base1);
-    background-color: var(--base2);
+    color: var(--dark4);
+    background-color: var(--light1);
     pointer-events: none;
 }
 button.gameplay:hover {
@@ -218,8 +220,8 @@ svg#game {
 /*  Background divs to create nice sharp rectangles */
 div.background {
     position: absolute;
-    border:1px solid var(--base1);
-    background-color: var(--base3);
+    border:1px solid var(--dark4);
+    background-color: var(--light0);
 }
 div#hand {
     left: 0px;
