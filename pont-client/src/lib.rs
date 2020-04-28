@@ -103,6 +103,12 @@ struct DropToGrid {
     shadow: Element,
 }
 
+enum DropTarget {
+    DropToGrid(i32, i32),
+    ReturnToGrid(i32, i32),
+    ReturnToHand,
+}
+
 struct ReturnToHand {
     anim: TileAnimation,
 }
@@ -119,6 +125,9 @@ pub struct Board {
     svg: SvgGraphicsElement,
 
     drag: DragState,
+
+    pan_group: Element,
+    pan_offset: Pos,
 
     grid: HashMap<(i32, i32), Piece>,
     tentative: HashMap<(i32, i32), usize>,
@@ -149,6 +158,15 @@ impl Board {
         svg.set_attribute("width", "100")?;
         svg.set_attribute("hight", "100")?;
         svg.set_attribute("viewBox", "0 0 200 200")?;
+
+        let pan_group = doc.create_element_ns(
+                Some("http://www.w3.org/2000/svg"), "g")?
+            .dyn_into::<Element>()?;
+        svg.append_child(&pan_group)?;
+        let pan_offset = (5.0, 7.5);
+        pan_group.set_attribute(
+            "transform",
+            &format!("translate({} {})", pan_offset.0, pan_offset.1))?;
 
         let svg_div = doc.create_element("div")?;
         svg_div.set_id("svg");
@@ -213,6 +231,7 @@ impl Board {
             doc: doc.clone(),
             drag: DragState::Idle,
             svg,
+            pan_group, pan_offset,
             grid: HashMap::new(),
             tentative: HashMap::new(),
             hand: Vec::new(),
@@ -249,19 +268,10 @@ impl Board {
         (dx, dy)
     }
 
-    fn mouse_pos(&self, evt: &PointerEvent, offset: Pos) -> Pos {
+    fn mouse_pos(&self, evt: &PointerEvent) -> Pos {
         let mat = self.svg.get_screen_ctm().unwrap();
-        let mut x = (evt.client_x() as f32 - mat.e()) / mat.a() - offset.0;
-        let mut y = (evt.client_y() as f32 - mat.f()) / mat.d() - offset.1;
-
-        for c in [&mut x, &mut y].iter_mut() {
-            if **c < 0.0 {
-                **c = 0.0;
-            } else if **c > 190.0 {
-                **c = 190.0;
-            }
-        }
-
+        let x = (evt.client_x() as f32 - mat.e()) / mat.a();
+        let y = (evt.client_y() as f32 - mat.f()) / mat.d();
         (x, y)
     }
 
@@ -286,14 +296,34 @@ impl Board {
         shadow.set_attribute("x", "0.25")?;
         shadow.set_attribute("y", "0.25")?;
         shadow.set_attribute("visibility", "hidden")?;
-        self.svg.append_child(&shadow)?;
+        self.pan_group.append_child(&shadow)?;
 
         // Walk up the tree to find the piece's <g> group,
         // which sets its position with a translation
         while !target.has_attribute("transform") {
             target = target.parent_node().unwrap().dyn_into::<Element>()?;
         }
-        self.svg.remove_child(&target)?;
+        let (mx, my) = self.mouse_pos(&evt);
+        let (mut tx, mut ty) = Self::get_transform(&target);
+
+        let (hand_index, grid_origin) = if my > 185.0 {
+            // Picking from hand
+            let i = (tx.round() as i32 - 5) / 15;
+            self.svg.remove_child(&target)?;
+            (i as usize, None)
+        } else {
+            // Picking from tentative grid
+            let x = tx.round() as i32 / 10;
+            let y = ty.round() as i32 / 10;
+            self.pan_group.remove_child(&target)?;
+            tx += self.pan_offset.0;
+            ty += self.pan_offset.1;
+            target.set_attribute("transform",
+                                   &format!("translate({} {})", tx, ty))?;
+            (self.tentative.remove(&(x, y)).unwrap(), Some((x, y)))
+        };
+
+        // Move to the back of the SVG object, so it's on top
         self.svg.append_child(&target)?;
 
         target.set_pointer_capture(evt.pointer_id())?;
@@ -303,63 +333,89 @@ impl Board {
         target.add_event_listener_with_callback("pointerup",
                 self.pointer_up_cb.as_ref().unchecked_ref())
             .expect("Could not add event listener");
-        let (mx, my) = self.mouse_pos(&evt, (0.0, 0.0));
-        let (dx, dy) = Self::get_transform(&target);
-
-        let x = dx.round() as i32;
-        let y = dy.round() as i32;
-        console_log!("Got piece from {} {}", x, y);
-
-        let (hand_index, grid_origin) = if y == 185 {
-            let i = ((x - 5) / 15) as usize;
-            (i, None)
-        } else {
-            let x = x / 10;
-            let y = y / 10;
-            (self.tentative.remove(&(x, y)).unwrap(), Some((x, y)))
-        };
 
         self.drag = DragState::Dragging(Dragging {
             target,
             shadow,
-            offset: (mx - dx, my - dy),
+            offset: (mx - tx, my - ty),
             hand_index,
             grid_origin,
         });
         Ok(())
     }
 
-    fn on_pointer_move(&self, evt: PointerEvent) -> JsError {
+    fn drop_target(&self, evt: &PointerEvent) -> JsResult<(Pos, DropTarget)> {
         if let DragState::Dragging(d) = &self.drag {
-            evt.prevent_default();
-            let (x, y) = self.mouse_pos(&evt, d.offset);
+            // Get the position of the tile being dragged
+            // in SVG frame coordinates (0-200)
+            let (mut x, mut y) = self.mouse_pos(&evt);
+            x -= d.offset.0;
+            y -= d.offset.1;
 
-            d.target.set_attribute("transform",
-                                   &format!("translate({} {})", x, y))?;
+            // Clamp to the window's bounds
+            for c in [&mut x, &mut y].iter_mut() {
+                if **c < 0.0 {
+                    **c = 0.0;
+                } else if **c > 190.0 {
+                    **c = 190.0;
+                }
+            }
+            let pos = (x, y);
+
+            // If the tile is off the bottom of the grid, then we propose
+            // to return it to the hand.
+            if y >= 165.0 {
+                return Ok((pos, DropTarget::ReturnToHand))
+            }
+
+            // Otherwise, we shift the tile's coordinates by the panning
+            // of the main grid, then check whether we can place it
+            x -= self.pan_offset.0;
+            y -= self.pan_offset.1;
+
             let tx = (x / 10.0).round() as i32;
             let ty = (y / 10.0).round() as i32;
 
             let overlapping = self.grid.contains_key(&(tx, ty)) ||
                               self.tentative.contains_key(&(tx, ty));
-            let offscreen = tx < 0 || tx >= 20 || ty < 0 || ty >= 20;
-            if ty < 18 && !overlapping && !offscreen {
-                let x = tx as f32 * 10.0;
-                let y = ty as f32 * 10.0;
-                d.shadow.set_attribute("transform",
-                                   &format!("translate({} {})", x, y))?;
-                d.shadow.set_attribute("visibility", "visible")?;
-            } else {
-                d.shadow.set_attribute("visibility", "hidden")?;
+            if !overlapping {
+                return Ok((pos, DropTarget::DropToGrid(tx, ty)));
             }
+
+            // Otherwise, return to either the hand or the grid
+            Ok((pos, match d.grid_origin {
+                None => DropTarget::ReturnToHand,
+                Some((gx, gy)) => DropTarget::ReturnToGrid(gx, gy),
+            }))
+        } else {
+            Err(JsValue::from_str("Invalid state"))
         }
-        Ok(())
+    }
+
+    fn on_pointer_move(&self, evt: PointerEvent) -> JsError {
+        if let DragState::Dragging(d) = &self.drag {
+            evt.prevent_default();
+
+            let (pos, drop_target) = self.drop_target(&evt)?;
+            d.target.set_attribute("transform",
+                                   &format!("translate({} {})", pos.0, pos.1))?;
+            match drop_target {
+                DropTarget::DropToGrid(gx, gy) => {
+                    d.shadow.set_attribute(
+                        "transform", &format!("translate({} {})",
+                             gx as f32 * 10.0, gy as f32 * 10.0))?;
+                    d.shadow.set_attribute("visibility", "visible")
+                },
+                _ => d.shadow.set_attribute("visibility", "hidden")
+            }
+        } else {
+            Err(JsValue::from_str("Invalid state"))
+        }
     }
 
     fn on_pointer_up(&mut self, evt: PointerEvent) -> JsError {
-        console_log!("pointer up {:?}", evt);
         if let DragState::Dragging(d) = &self.drag {
             evt.prevent_default();
-            let (x, y) = self.mouse_pos(&evt, d.offset);
 
             d.target.remove_event_listener_with_callback("pointermove",
                     self.pointer_move_cb.as_ref().unchecked_ref())
@@ -368,61 +424,33 @@ impl Board {
                     self.pointer_up_cb.as_ref().unchecked_ref())
                 .expect("Could not remove event listener");
 
-            let tx = (x / 10.0).round() as i32;
-            let ty = (y / 10.0).round() as i32;
-
-            let overlapping = self.grid.contains_key(&(tx, ty)) ||
-                              self.tentative.contains_key(&(tx, ty));
-            let offscreen = tx < 0 || tx >= 20 || ty < 0 || ty >= 20;
-            console_log!("Dropping at {} {}", tx, ty);
-            self.drag = if ty >= 18 {
-                // Drop to hand
-                self.svg.remove_child(&d.shadow)?;
-                DragState::ReturnToHand(ReturnToHand{
-                    anim: TileAnimation {
-                        target: d.target.clone(),
-                        start: (x, y),
-                        end: ((d.hand_index * 15 + 5) as f32, 185.0),
-                        t0: evt.time_stamp()
-                    }})
-            } else if !overlapping && !offscreen {
-                // Insert into the grid with a dropping animation
-                self.tentative.insert((tx, ty), d.hand_index);
-                DragState::DropToGrid(DropToGrid{
-                    anim: TileAnimation {
-                        target: d.target.clone(),
-                        start: (x, y),
-                        end: (tx as f32 * 10.0, ty as f32 * 10.0),
-                        t0: evt.time_stamp(),
-                    },
-                    shadow: d.shadow.clone(),
-                })
-            } else {
-                // Return to its previous grid position or your hand
-                match d.grid_origin {
-                    None => {
-                        self.svg.remove_child(&d.shadow)?;
-                        DragState::ReturnToHand(ReturnToHand{
-                            anim: TileAnimation {
-                                target: d.target.clone(),
-                                start: (x, y),
-                                end: ((d.hand_index * 15 + 5) as f32, 185.0),
-                                t0: evt.time_stamp()
-                            }
-                        })
-                    }
-                    Some((gx, gy)) => {
-                        self.tentative.insert((gx, gy), d.hand_index);
-                        DragState::DropToGrid(DropToGrid{
-                            anim: TileAnimation {
-                                target: d.target.clone(),
-                                start: (x, y),
-                                end: ((gx * 10) as f32, (gy * 10) as f32),
-                                t0: evt.time_stamp(),
-                            },
-                            shadow: d.shadow.clone(),
-                        })
-                    }
+            let (pos, drop_target) = self.drop_target(&evt)?;
+            self.drag = match drop_target {
+                DropTarget::ReturnToHand => {
+                    self.pan_group.remove_child(&d.shadow)?;
+                    DragState::ReturnToHand(ReturnToHand{
+                        anim: TileAnimation {
+                            target: d.target.clone(),
+                            start: pos,
+                            end: ((d.hand_index * 15 + 5) as f32, 185.0),
+                            t0: evt.time_stamp()
+                        }})
+                },
+                DropTarget::DropToGrid(gx, gy) |
+                DropTarget::ReturnToGrid(gx, gy) => {
+                    self.tentative.insert((gx, gy), d.hand_index);
+                    let target = d.target.clone();
+                    self.svg.remove_child(&target)?;
+                    self.pan_group.append_child(&target)?;
+                    DragState::DropToGrid(DropToGrid{
+                        anim: TileAnimation {
+                            target,
+                            start: (pos.0 - self.pan_offset.0, pos.1 - self.pan_offset.1),
+                            end: (gx as f32 * 10.0, gy as f32 * 10.0),
+                            t0: evt.time_stamp(),
+                        },
+                        shadow: d.shadow.clone(),
+                    })
                 }
             };
 
@@ -444,7 +472,7 @@ impl Board {
                         .request_animation_frame(self.anim_cb.as_ref()
                                                  .unchecked_ref())?;
                 } else {
-                    self.svg.remove_child(&d.shadow)?;
+                    self.pan_group.remove_child(&d.shadow)?;
                     self.drag = DragState::Idle;
                     self.accept_button.set_disabled(false);
                     self.reject_button.set_disabled(false);
