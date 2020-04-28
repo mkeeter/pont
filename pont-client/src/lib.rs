@@ -135,17 +135,16 @@ pub struct Board {
 
 impl Board {
     fn new(doc: &Document, game_div: &HtmlElement) -> JsResult<Board> {
-        // Add an SVG
-        let svg = doc.create_element_ns(
-                Some("http://www.w3.org/2000/svg"), "svg")?
-            .dyn_into::<SvgGraphicsElement>()?;
-
         let dummy = doc.create_element_ns(
                 Some("http://www.w3.org/2000/svg"), "svg")?
             .dyn_into::<SvgGraphicsElement>()?;
         dummy.set_attribute("viewBox", "0 0 200 200")?;
         dummy.set_id("dummy");
 
+        // Add an SVG
+        let svg = doc.create_element_ns(
+                Some("http://www.w3.org/2000/svg"), "svg")?
+            .dyn_into::<SvgGraphicsElement>()?;
         svg.set_id("game");
         svg.set_attribute("width", "100")?;
         svg.set_attribute("hight", "100")?;
