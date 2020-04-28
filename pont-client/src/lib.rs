@@ -29,6 +29,7 @@ macro_rules! console_log {
 
 type JsResult<T> = Result<T, JsValue>;
 type JsError = Result<(), JsValue>;
+type JsClosure<T> = Closure<dyn FnMut(T) -> JsError>;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -141,14 +142,14 @@ pub struct Board {
     accept_button: HtmlButtonElement,
     reject_button: HtmlButtonElement,
 
-    pointer_down_cb: Closure<dyn FnMut(PointerEvent)>,
-    pointer_move_cb: Closure<dyn FnMut(PointerEvent)>,
-    pointer_up_cb: Closure<dyn FnMut(PointerEvent)>,
+    pointer_down_cb: JsClosure<PointerEvent>,
+    pointer_move_cb: JsClosure<PointerEvent>,
+    pointer_up_cb: JsClosure<PointerEvent>,
 
-    pan_move_cb: Closure<dyn FnMut(PointerEvent)>,
-    pan_end_cb: Closure<dyn FnMut(PointerEvent)>,
+    pan_move_cb: JsClosure<PointerEvent>,
+    pan_end_cb: JsClosure<PointerEvent>,
 
-    anim_cb: Closure<dyn FnMut(f64)>,
+    anim_cb: JsClosure<f64>,
 }
 
 impl Board {
@@ -181,7 +182,6 @@ impl Board {
         set_event_cb(&pan_rect, "pointerdown", move |evt: PointerEvent| {
             HANDLE.lock().unwrap()
                 .on_pan_start(evt)
-                .expect("Failed to pan_start event");
         }).forget();
 
         let pan_group = doc.create_element_ns(
@@ -217,6 +217,7 @@ impl Board {
         set_event_cb(&accept_button, "click", move |e: Event| {
             e.prevent_default();
             console_log!("CLICKED");
+            Ok(())
         }).forget();
 
         let reject_button = doc.create_element("button")?
@@ -226,6 +227,10 @@ impl Board {
         reject_button.set_class_name("gameplay");
         reject_button.set_disabled(true);
         svg_div.append_child(&reject_button)?;
+        set_event_cb(&reject_button, "click", move |evt: Event| {
+            HANDLE.lock().unwrap()
+                .on_reject_button(evt)
+        }).forget();
 
         svg_div.append_child(&svg)?;
 
@@ -234,32 +239,26 @@ impl Board {
         let pointer_down_cb = build_cb(move |evt: PointerEvent| {
             HANDLE.lock().unwrap()
                 .on_pointer_down(evt)
-                .expect("Failed to pointer_down event");
         });
         let pointer_move_cb = build_cb(move |evt: PointerEvent| {
             HANDLE.lock().unwrap()
                 .on_pointer_move(evt)
-                .expect("Failed to pointer_down event");
         });
         let pointer_up_cb = build_cb(move |evt: PointerEvent| {
             HANDLE.lock().unwrap()
                 .on_pointer_up(evt)
-                .expect("Failed to pointer_down event");
         });
         let anim_cb = build_cb(move |evt: f64| {
             HANDLE.lock().unwrap()
                 .on_anim(evt)
-                .expect("Failed to anim event");
         });
         let pan_move_cb = build_cb(move |evt: PointerEvent| {
             HANDLE.lock().unwrap()
                 .on_pan_move(evt)
-                .expect("Failed to anim event");
         });
         let pan_end_cb = build_cb(move |evt: PointerEvent| {
             HANDLE.lock().unwrap()
                 .on_pan_end(evt)
-                .expect("Failed to anim event");
         });
 
         let out = Board {
@@ -704,9 +703,9 @@ pub struct Base {
     main_div: HtmlElement,
     ws: WebSocket,
 
-    _open_cb: Closure<dyn FnMut(JsValue)>,
-    _message_cb: Closure<dyn FnMut(MessageEvent)>,
-    _close_cb: Closure<dyn FnMut(Event)>,
+    _open_cb: JsClosure<JsValue>,
+    _message_cb: JsClosure<MessageEvent>,
+    _close_cb: JsClosure<Event>,
 }
 
 impl Base {
@@ -742,9 +741,9 @@ struct CreateOrJoin {
     err_span: HtmlElement,
 
     // Callbacks are owned so that it lives as long as the state
-    _room_invalid_cb: Closure<dyn FnMut(Event)>,
-    _input_cb: Closure<dyn FnMut(Event)>,
-    _submit_cb: Closure<dyn FnMut(Event)>,
+    _room_invalid_cb: JsClosure<Event>,
+    _input_cb: JsClosure<Event>,
+    _submit_cb: JsClosure<Event>,
 }
 
 struct Playing {
@@ -759,7 +758,7 @@ struct Playing {
     board: Board,
 
     // Callback is owned so that it lives as long as the state
-    _keyup_cb: Closure<dyn FnMut(KeyboardEvent)>,
+    _keyup_cb: JsClosure<KeyboardEvent>,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -819,18 +818,17 @@ lazy_static::lazy_static! {
 // Boilerplate to wrap and bind a callback.
 // The resulting callback must be stored for as long as it may be used.
 #[must_use]
-fn build_cb<F, T>(f: F) -> Closure<dyn std::ops::FnMut(T)>
-    where F: FnMut(T) + 'static,
+fn build_cb<F, T>(f: F) -> JsClosure<T>
+    where F: FnMut(T) -> JsError + 'static,
           T: FromWasmAbi + 'static
 {
-    Closure::wrap(Box::new(f) as Box<dyn FnMut(T)>)
+    Closure::wrap(Box::new(f) as Box<dyn FnMut(T) -> JsError>)
 }
 
 #[must_use]
-fn set_event_cb<E, F, T>(obj: &E, name: &str, f: F)
-    -> Closure<dyn std::ops::FnMut(T)>
+fn set_event_cb<E, F, T>(obj: &E, name: &str, f: F) -> JsClosure<T>
     where E: JsCast + Clone + std::fmt::Debug,
-          F: FnMut(T) + 'static,
+          F: FnMut(T) -> JsError + 'static,
           T: FromWasmAbi + 'static
 {
     let cb = build_cb(f);
@@ -886,7 +884,6 @@ impl CreateOrJoin {
         let room_invalid_cb = set_event_cb(&room_input, "invalid",
             move |_: Event| {
                 HANDLE.lock().unwrap().on_room_name_invalid()
-                    .expect("Error in callback");
             });
         form.append_child(&p)?;
 
@@ -902,12 +899,10 @@ impl CreateOrJoin {
         base.main_div.append_child(&form)?;
         let input_cb = set_event_cb(&room_input, "input", move |_: Event| {
             HANDLE.lock().unwrap().on_join_inputs_changed()
-                .expect("Error in callback");
         });
         let submit_cb = set_event_cb(&form, "submit", move |e: Event| {
             e.prevent_default();
             HANDLE.lock().unwrap().on_join_button()
-                .expect("Error in callback");
         });
 
         let err_div = base.doc.create_element("div")?
@@ -1070,7 +1065,8 @@ impl Playing {
                 if e.key_code() == 13 { // Enter key
                     e.prevent_default();
                     HANDLE.lock().unwrap().on_send_chat()
-                        .expect("Error in callback");
+                } else {
+                    Ok(())
                 }
             });
 
@@ -1295,18 +1291,18 @@ pub fn main() -> JsError {
     let open_cb = set_event_cb(&ws, "open", move |_: JsValue| {
         HANDLE.lock().unwrap()
             .on_connected()
-            .expect("Failed state transition");
     });
 
     let message_cb = set_event_cb(&ws, "message", move |e: MessageEvent| {
         let msg = serde_json::from_str(&e.data().as_string().unwrap())
-            .expect("Failed to decode message");
+            .map_err(|e| JsValue::from_str(
+                    &format!("Failed to deserialize: {}", e)))?;
         on_message(msg)
-            .expect("Failed to handle message");
     });
 
-    let close_cb = set_event_cb(&ws, "close", move |_: Event| {
+    let close_cb = set_event_cb(&ws, "close", move |_: Event| -> JsError {
         console_log!("Socket closed");
+        Ok(())
     });
 
     let base = Base {
