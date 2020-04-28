@@ -509,6 +509,7 @@ impl Board {
 
     fn add_hand(&mut self, p: Piece) -> JsError {
         let g = self.new_piece(p)?;
+        self.svg.append_child(&g)?;
         g.class_list().add_1("piece")?;
         g.set_attribute("transform", &format!("translate({} 185)",
                                               5 + 15 * self.hand.len()))?;
@@ -602,8 +603,6 @@ impl Board {
         g.append_child(&r)?;
         g.append_child(&s)?;
 
-        self.svg.append_child(&g)?;
-
         Ok(g)
     }
 
@@ -611,6 +610,7 @@ impl Board {
         self.grid.insert((x, y), p);
 
         let g = self.new_piece(p)?;
+        self.pan_group.append_child(&g)?;
         g.class_list().add_1("placed")?;
         g.set_attribute("transform", &format!("translate({} {})", x * 10, y * 10))?;
 
