@@ -18,7 +18,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tungstenite::protocol::Message as WebsocketMessage;
 use tokio_tungstenite::WebSocketStream;
 
-use pont_common::{ClientMessage, ServerMessage, Game};
+use pont_common::{ClientMessage, ServerMessage, Game, Piece};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -42,6 +42,7 @@ type RoomList = Arc<Mutex<HashMap<String, UnboundedSender<PlayerJoined>>>>;
 struct Player {
     name: String,
     score: u32,
+    hand: HashMap<Piece, usize>,
     ws: Option<UnboundedSender<ServerMessage>>
 }
 
@@ -85,9 +86,17 @@ impl Room {
 
         // Add the new player to the active list of connections and players
         self.connections.insert(addr, self.players.len());
+        let hand = self.game.deal(6);
+        let mut pieces = Vec::new();
+        for (piece, count) in hand.iter() {
+            for _i in 0..*count {
+                pieces.push(piece.clone());
+            }
+        }
         self.players.push(Player {
             name: player_name.clone(),
             score: 0,
+            hand: hand,
             ws: Some(ws_tx.clone()) });
 
         // Tell the player that they have joined the room
@@ -98,7 +107,7 @@ impl Room {
                     .collect(),
                 active_player: self.active_player,
                 board: self.game.board.clone(),
-                pieces: self.game.deal(6)})
+                pieces})
             .expect("Could not send JoinedRoom");
         // ...and send them a personalized welcome chat message
         ws_tx.unbounded_send(ServerMessage::Information(
@@ -134,6 +143,30 @@ impl Room {
         }
     }
 
+    fn subtract_from_hand(&mut self, i: usize, piece: Piece) -> bool {
+        if let Some(count) = self.players[i].hand.get_mut(&piece) {
+            if *count > 0 {
+                *count -= 1;
+                return true;
+            }
+        }
+        false
+    }
+
+    fn on_play(&mut self, i: usize, pieces: &[(Piece, i32, i32)]) {
+        for p in pieces {
+            if !self.subtract_from_hand(i, p.0) {
+                warn!("[{}] Player {} tried to play an unowned piece {:?}",
+                      self.name, self.players[i].name, p);
+                return;
+            }
+        }
+        if let Some(score) = self.game.play(pieces) {
+            self.broadcast(ServerMessage::Information(
+                            format!("{} scored {} points", self.players[i].name, score)));
+        }
+    }
+
     fn on_message(&mut self, addr: SocketAddr, msg: ClientMessage) {
         trace!("[{}] Got message {:?} from {}", self.name, msg, addr);
         match msg {
@@ -146,16 +179,16 @@ impl Room {
                             message: c.clone()});
             },
             ClientMessage::CreateRoom(_) | ClientMessage::JoinRoom(_, _) => {
-                warn!("Invalid client message {:?}", msg);
+                warn!("[{}] Invalid client message {:?}", self.name, msg);
             },
-            /*
             ClientMessage::Play(pieces) => {
-                if let Some(p) = self.players.get(&addr) {
-                    trace!("[{}] {} played {:?}", self.name, p.name, pieces);
+                if let Some(i) = self.connections.get(&addr).map(|i| *i) {
+                    self.on_play(i, &pieces);
                 } else {
-                    trace!("[{}] Invalid player {}", self.name, addr);
+                    warn!("[{}] Invalid player {}", self.name, addr);
                 }
             }
+            /*
             ClientMessage::Swap(pieces) => {
                 if let Some(p) = self.players.get(&addr) {
                     trace!("[{}] {} swapped {:?}", self.name, p.name, pieces);

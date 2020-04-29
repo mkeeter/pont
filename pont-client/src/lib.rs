@@ -2,7 +2,7 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::convert::FromWasmAbi;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use web_sys::{
     Element,
@@ -776,28 +776,44 @@ impl Board {
 
     /*  Attempts to make the given move.
      *  If the move is valid (TODO), returns the indexes of placed pieces
-     *  (as hand indexes), which can be passed up to the server.
-     *
-     *  Also kicks off an animation to consolidate all pieces. */
-    fn make_move(&mut self, _evt: Event) -> JsResult<Vec<(usize, i32, i32)>> {
-        let mut ts = HashMap::new();
-        std::mem::swap(&mut ts, &mut self.tentative);
-        let mut removed = HashSet::new();
-        let mut out = Vec::new();
-        for ((x, y), i) in ts.drain() {
-            let (piece, element) = self.hand[i].clone();
-            element.class_list().remove_1("piece")?;
-            element.class_list().add_1("placed")?;
-            element.remove_event_listener_with_callback("pointerdown",
-                self.pointer_down_cb.as_ref().unchecked_ref())?;
-            self.grid.insert((x, y), piece);
-            removed.insert(i);
-            out.push((i, x, y));
+     *  (as hand indexes), which can be passed up to the server. */
+    fn make_move(&mut self, _evt: Event) -> JsResult<Vec<(Piece, i32, i32)>> {
+        match self.drag {
+            DragState::Idle => (),
+            _ => return Ok(Vec::new()),
         }
 
-        // Disable buttons until we hear back from the server
+        let mut placed = HashMap::new();
+        for ((x, y), i) in self.tentative.drain() {
+            placed.insert(i, (x, y));
+        }
+
+        // We're going to shuffle pieces around now!
+        let mut out = Vec::new();
+        let mut new_hand = Vec::new();
+        std::mem::swap(&mut new_hand, &mut self.hand);
+        for (i, (piece, element)) in new_hand.into_iter().enumerate() {
+            if let Some((x, y)) = placed.remove(&i) {
+                element.class_list().remove_1("piece")?;
+                element.class_list().add_1("placed")?;
+                element.remove_event_listener_with_callback(
+                    "pointerdown",
+                    self.pointer_down_cb.as_ref().unchecked_ref())?;
+                self.grid.insert((x, y), piece);
+                out.push((piece, x, y));
+            } else {
+                self.hand.push((piece, element));
+            }
+        }
+
+        // Disable everything until we hear back from the server.
+        //
+        // If this is a one-player game, then it will be our turn again,
+        // but we'll let the server tell us that.
         self.accept_button.set_disabled(true);
         self.reject_button.set_disabled(true);
+        self.set_my_turn(false)?;
+
         Ok(out)
     }
 
@@ -1352,7 +1368,8 @@ impl Playing {
     }
 
     fn on_accept_button(&mut self, evt: Event) -> JsError {
-        self.board.make_move(evt)?;
+        let m = self.board.make_move(evt)?;
+        self.base.send(ClientMessage::Play(m))?;
         Ok(())
     }
 }

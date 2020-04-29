@@ -9,9 +9,9 @@ pub enum ClientMessage {
     CreateRoom(String),
     JoinRoom(String, String),
     Chat(String),
+    Play(Vec<(Piece, i32, i32)>),
 
     /*
-    Play(Vec<(Piece, i32, i32)>),
     Swap(Vec<Piece>),
     */
 
@@ -50,7 +50,7 @@ pub enum ServerMessage {
     */
 }
 
-#[derive(Copy, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Copy, Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum Shape {
     Clover,
     Star,
@@ -60,7 +60,7 @@ pub enum Shape {
     Circle,
 }
 
-#[derive(Copy, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Copy, Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum Color {
     Orange,
     Yellow,
@@ -79,6 +79,19 @@ pub struct Game {
 }
 
 impl Game {
+    pub fn play(&mut self, ps: &[(Piece, i32, i32)]) -> Option<usize> {
+        let mut score = 0;
+        for (p, x, y) in ps {
+            if self.board.contains_key(&(*x, *y)) {
+                return None;
+            } else {
+                self.board.insert((*x, *y), *p);
+                score += 1;
+            }
+        }
+        Some(score)
+    }
+
     pub fn new() -> Game {
         use Color::*;
         use Shape::*;
@@ -97,11 +110,11 @@ impl Game {
         }
     }
 
-    pub fn deal(&mut self, n: usize) -> Vec<Piece> {
-        let mut out = Vec::new();
+    pub fn deal(&mut self, n: usize) -> HashMap<Piece, usize> {
+        let mut out = HashMap::new();
         for _ in 0..n {
             if let Some(p) = self.bag.pop() {
-                out.push(p);
+                *out.entry(p).or_insert(0) += 1;
             }
         }
         out
