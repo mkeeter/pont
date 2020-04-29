@@ -67,6 +67,23 @@ impl Room {
         }
     }
 
+    fn broadcast_except(&self, i: usize, s: ServerMessage) {
+        for (j, c) in self.connections.values().enumerate() {
+            if i != j {
+                self.players[*c].ws.as_ref().unwrap().unbounded_send(s.clone())
+                    .expect("Failed to send broadcast");
+            }
+        }
+    }
+
+    fn send(&self, i: usize, s: ServerMessage) {
+        if let Some(p) = self.players[i].ws.as_ref() {
+            p.unbounded_send(s).expect("Failed to send player message");
+        } else {
+            error!("[{}] Tried sending message to inactive player", self.name);
+        }
+    }
+
     fn add_player(&mut self, addr: SocketAddr, player_name: String,
                   ws: SplitSink<WebSocketStream<TcpStream>, WebsocketMessage>)
     {
@@ -117,6 +134,28 @@ impl Room {
         self.started = true;
     }
 
+    fn next_player(&mut self) {
+        if self.connections.len() > 0 {
+            self.active_player = (self.active_player + 1) %
+                                  self.players.len();
+            while self.players[self.active_player].ws.is_none() {
+                self.active_player = (self.active_player + 1) %
+                                      self.players.len();
+            }
+            info!("[{}] Active player changed to {}", self.name,
+                  self.players[self.active_player].name);
+
+            self.broadcast_except(self.active_player,
+                ServerMessage::Information(
+                    format!("It is now {}'s turn",
+                        self.players[self.active_player].name)));
+            self.send(self.active_player,
+                      ServerMessage::Information(
+                          "It's your turn!".to_string()));
+            self.broadcast(ServerMessage::PlayerTurn(self.active_player));
+        }
+    }
+
     fn on_client_disconnected(&mut self, addr: SocketAddr) {
         if let Some(p) = self.connections.remove(&addr) {
             let player_name = self.players[p].name.clone();
@@ -128,23 +167,16 @@ impl Room {
             self.broadcast(ServerMessage::PlayerDisconnected(p));
 
             // Find the next active player and broadcast out that info
-            if p == self.active_player && self.connections.len() > 0 {
-                while self.players[self.active_player].ws.is_none() {
-                    self.active_player = (self.active_player + 1) %
-                                          self.players.len();
-                }
-                info!("[{}] Active player changed to {}", self.name,
-                      self.players[self.active_player].name);
-                self.broadcast(ServerMessage::PlayerTurn(self.active_player));
-            }
+            self.next_player();
         } else {
             error!("[{}] Tried to remove non-existent player at {}",
                      self.name, addr);
         }
     }
 
-    fn subtract_from_hand(&mut self, i: usize, piece: Piece) -> bool {
-        if let Some(count) = self.players[i].hand.get_mut(&piece) {
+    fn subtract_from_hand(&mut self, piece: Piece) -> bool {
+        let p = &mut self.players[self.active_player];
+        if let Some(count) = p.hand.get_mut(&piece) {
             if *count > 0 {
                 *count -= 1;
                 return true;
@@ -153,18 +185,25 @@ impl Room {
         false
     }
 
-    fn on_play(&mut self, i: usize, pieces: &[(Piece, i32, i32)]) {
+    fn on_play(&mut self, pieces: &[(Piece, i32, i32)]) {
         for p in pieces {
-            if !self.subtract_from_hand(i, p.0) {
+            if !self.subtract_from_hand(p.0) {
                 warn!("[{}] Player {} tried to play an unowned piece {:?}",
-                      self.name, self.players[i].name, p);
+                      self.name, self.players[self.active_player].name, p);
                 return;
             }
         }
         if let Some(score) = self.game.play(pieces) {
-            self.broadcast(ServerMessage::Information(
-                            format!("{} scored {} points", self.players[i].name, score)));
+            self.broadcast_except(self.active_player,
+                ServerMessage::Information(
+                    format!("{} scored {} points",
+                            self.players[self.active_player].name,
+                            score)));
+            self.send(self.active_player,
+                      ServerMessage::Information(
+                          format!("You scored {} points", score)));
         }
+        self.next_player();
     }
 
     fn on_message(&mut self, addr: SocketAddr, msg: ClientMessage) {
@@ -183,7 +222,11 @@ impl Room {
             },
             ClientMessage::Play(pieces) => {
                 if let Some(i) = self.connections.get(&addr).map(|i| *i) {
-                    self.on_play(i, &pieces);
+                    if i == self.active_player {
+                        self.on_play(&pieces);
+                    } else {
+                        warn!("[{}] Player {} out of turn", self.name, addr);
+                    }
                 } else {
                     warn!("[{}] Invalid player {}", self.name, addr);
                 }
