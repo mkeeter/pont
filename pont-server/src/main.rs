@@ -206,7 +206,10 @@ impl Room {
             });
 
             let mut deal = Vec::new();
-            for (piece, count) in self.game.deal(6 - pieces.len()) {
+
+            let hand_size: usize = self.players[self.active_player].hand
+                .values().sum();
+            for (piece, count) in self.game.deal(6 - hand_size) {
                 *self.players[self.active_player].hand.entry(piece)
                     .or_insert(0) += count;
                 for _i in 0..count {

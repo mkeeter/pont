@@ -120,17 +120,10 @@ enum DropTarget {
     ReturnToHand,
 }
 
-struct ReturnToHand {
-    anim: TileAnimation,
-}
-
-struct DragPan {
-    start: Pos,
-}
-
-struct ReturnManyToHand {
-    anims: Vec<TileAnimation>,
-}
+struct ReturnToHand(TileAnimation);
+struct DragPan(Pos);
+struct ReturnManyToHand(Vec<TileAnimation>);
+struct ConsolidateHand(Vec<TileAnimation>);
 
 enum DragState {
     Idle,
@@ -139,6 +132,7 @@ enum DragState {
     ReturnToHand(ReturnToHand),
     DragPan(DragPan),
     ReturnManyToHand(ReturnManyToHand),
+    ConsolidateHand(ConsolidateHand),
 }
 
 pub struct Board {
@@ -346,8 +340,8 @@ impl Board {
             _ => return Ok(()),
         }
         let p = self.mouse_pos(&evt);
-        self.drag = DragState::DragPan(DragPan {
-            start: (p.0 - self.pan_offset.0, p.1 - self.pan_offset.1)});
+        self.drag = DragState::DragPan(DragPan(
+            (p.0 - self.pan_offset.0, p.1 - self.pan_offset.1)));
 
         let target = evt.target()
             .unwrap()
@@ -364,7 +358,7 @@ impl Board {
     fn on_pan_move(&mut self, evt: PointerEvent) -> JsError {
         if let DragState::DragPan(d) = &self.drag {
             let p = self.mouse_pos(&evt);
-            self.pan_offset = (p.0 - d.start.0, p.1 - d.start.1);
+            self.pan_offset = (p.0 - (d.0).0, p.1 - (d.0).1);
             self.pan_group.set_attribute("transform",
                                    &format!("translate({} {})",
                                    self.pan_offset.0,
@@ -541,13 +535,13 @@ impl Board {
             self.drag = match drop_target {
                 DropTarget::ReturnToHand => {
                     self.pan_group.remove_child(&d.shadow)?;
-                    DragState::ReturnToHand(ReturnToHand{
-                        anim: TileAnimation {
+                    DragState::ReturnToHand(ReturnToHand(
+                        TileAnimation {
                             target: d.target.clone(),
                             start: pos,
                             end: ((d.hand_index * 15 + 5) as f32, 185.0),
                             t0: evt.time_stamp()
-                        }})
+                        }))
                 },
                 DropTarget::DropToGrid(gx, gy) |
                 DropTarget::ReturnToGrid(gx, gy) => {
@@ -592,7 +586,7 @@ impl Board {
                 }
             },
             DragState::ReturnToHand(d) => {
-                if d.anim.run(t)? {
+                if d.0.run(t)? {
                     web_sys::window()
                         .expect("no global `window` exists")
                         .request_animation_frame(self.anim_cb.as_ref()
@@ -607,7 +601,7 @@ impl Board {
             },
             DragState::ReturnManyToHand(d) => {
                 let mut any_running = false;
-                for a in d.anims.iter() {
+                for a in d.0.iter() {
                     any_running |= a.run(t)?;
                 }
                 if any_running {
@@ -621,7 +615,22 @@ impl Board {
                     self.reject_button.set_disabled(true);
                 }
             },
-            _ => panic!("Invalid state"),
+            DragState::ConsolidateHand(d) => {
+                let mut any_running = false;
+                for a in d.0.iter() {
+                    any_running |= a.run(t)?;
+                }
+                if any_running {
+                    web_sys::window()
+                        .expect("no global `window` exists")
+                        .request_animation_frame(self.anim_cb.as_ref()
+                                                 .unchecked_ref())?;
+                } else {
+                    self.drag = DragState::Idle;
+                }
+            },
+            DragState::Dragging(_) | DragState::DragPan(_) | DragState::Idle =>
+                panic!("Invalid drag state"),
         }
         Ok(())
     }
@@ -756,15 +765,15 @@ impl Board {
                         dy - self.pan_offset.1))?;
             self.svg.append_child(t)?;
         }
-        self.drag = DragState::ReturnManyToHand(ReturnManyToHand {
-            anims: tiles.drain().map(|((tx, ty), i)|
+        self.drag = DragState::ReturnManyToHand(ReturnManyToHand(
+            tiles.drain().map(|((tx, ty), i)|
                 TileAnimation {
                     target: self.hand[i].1.clone(),
                     start: (tx as f32 * 10.0 + self.pan_offset.0,
                             ty as f32 * 10.0 + self.pan_offset.1),
                     end: ((i * 15 + 5) as f32, 185.0),
                     t0: evt.time_stamp()
-                }).collect()});
+                }).collect()));
         self.tentative.clear();
 
         web_sys::window()
@@ -803,9 +812,15 @@ impl Board {
         }
 
         // We're going to shuffle pieces around now!
-        let mut new_hand = Vec::new();
-        std::mem::swap(&mut new_hand, &mut self.hand);
-        for (i, (piece, element)) in new_hand.into_iter().enumerate() {
+        let mut prev_hand = Vec::new();
+        std::mem::swap(&mut prev_hand, &mut self.hand);
+        let mut anims = Vec::new();
+        let t0 = web_sys::window()
+            .expect("No global window found")
+            .performance()
+            .expect("No performance object found")
+            .now();
+        for (i, (piece, element)) in prev_hand.into_iter().enumerate() {
             if let Some((x, y)) = placed.remove(&i) {
                 element.class_list().remove_1("piece")?;
                 element.class_list().add_1("placed")?;
@@ -814,9 +829,31 @@ impl Board {
                     self.pointer_down_cb.as_ref().unchecked_ref())?;
                 self.grid.insert((x, y), piece);
             } else {
+                if self.hand.len() != i {
+                    anims.push(TileAnimation {
+                        target: element.clone(),
+                        start: (i as f32 * 15.0 + 5.0, 185.0),
+                        end: (self.hand.len() as f32 * 15.0 + 5.0, 185.0),
+                        t0 });
+                }
                 self.hand.push((piece, element));
             }
         }
+        for d in dealt {
+            let x = self.hand.len() as f32 * 15.0 + 5.0;
+            self.add_hand(*d)?;
+            anims.push(TileAnimation {
+                target: self.hand.last().unwrap().1.clone(),
+                start: (x, 220.0),
+                end: (x, 185.0),
+                t0
+            })
+        }
+        self.drag = DragState::ConsolidateHand(ConsolidateHand(anims));
+        web_sys::window()
+            .expect("no global `window` exists")
+            .request_animation_frame(self.anim_cb.as_ref()
+                                     .unchecked_ref())?;
 
         Ok(())
     }
