@@ -198,16 +198,27 @@ impl Room {
             }
         }
         if let Some(score) = self.game.play(pieces) {
-            self.broadcast_except(self.active_player,
-                ServerMessage::Information(
-                    format!("{} scored {} points",
-                            self.players[self.active_player].name,
-                            score)));
+            // Broadcast the new score to all players
+            self.players[self.active_player].score += score;
+            self.broadcast(ServerMessage::PlayerScore {
+                delta: score,
+                total: self.players[self.active_player].score,
+            });
+
+            let mut deal = Vec::new();
+            for (piece, count) in self.game.deal(6 - pieces.len()) {
+                *self.players[self.active_player].hand.entry(piece)
+                    .or_insert(0) += count;
+                for _i in 0..count {
+                    deal.push(piece);
+                }
+            }
+            info!("{:?}", self.players[self.active_player].hand);
+            self.send(self.active_player, ServerMessage::MoveAccepted(deal));
+
+            // Broadcast the play to other players
             self.broadcast_except(self.active_player,
                 ServerMessage::Played(pieces.iter().cloned().collect()));
-            self.send(self.active_player,
-                      ServerMessage::Information(
-                          format!("You scored {} points", score)));
         }
         self.next_player();
     }

@@ -37,6 +37,13 @@ pub enum ServerMessage {
     PlayerDisconnected(usize),
     PlayerTurn(usize),
     Played(Vec<(Piece, i32, i32)>),
+    MoveAccepted(Vec<Piece>),
+    MoveRejected,
+    PlayerScore {
+        delta: u32,
+        total: u32,
+    },
+
 
     /*
     Players {
@@ -80,7 +87,7 @@ pub struct Game {
 }
 
 impl Game {
-    pub fn play(&mut self, ps: &[(Piece, i32, i32)]) -> Option<usize> {
+    pub fn play(&mut self, ps: &[(Piece, i32, i32)]) -> Option<u32> {
         let mut score = 0;
         for (p, x, y) in ps {
             if self.board.contains_key(&(*x, *y)) {

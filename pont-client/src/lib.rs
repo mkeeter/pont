@@ -783,13 +783,26 @@ impl Board {
             _ => return Ok(Vec::new()),
         }
 
+        // Disable everything until we hear back from the server.
+        //
+        // If this is a one-player game, then it will be our turn again,
+        // but we'll let the server tell us that.
+        self.accept_button.set_disabled(true);
+        self.reject_button.set_disabled(true);
+        self.set_my_turn(false)?;
+
+        Ok(self.tentative.iter()
+            .map(|((x, y), i)| (self.hand[*i].0.clone(), *x, *y))
+            .collect())
+    }
+
+    fn on_move_accepted(&mut self, dealt: &[Piece]) -> JsError {
         let mut placed = HashMap::new();
         for ((x, y), i) in self.tentative.drain() {
             placed.insert(i, (x, y));
         }
 
         // We're going to shuffle pieces around now!
-        let mut out = Vec::new();
         let mut new_hand = Vec::new();
         std::mem::swap(&mut new_hand, &mut self.hand);
         for (i, (piece, element)) in new_hand.into_iter().enumerate() {
@@ -800,21 +813,12 @@ impl Board {
                     "pointerdown",
                     self.pointer_down_cb.as_ref().unchecked_ref())?;
                 self.grid.insert((x, y), piece);
-                out.push((piece, x, y));
             } else {
                 self.hand.push((piece, element));
             }
         }
 
-        // Disable everything until we hear back from the server.
-        //
-        // If this is a one-player game, then it will be our turn again,
-        // but we'll let the server tell us that.
-        self.accept_button.set_disabled(true);
-        self.reject_button.set_disabled(true);
-        self.set_my_turn(false)?;
-
-        Ok(out)
+        Ok(())
     }
 
 }
@@ -924,6 +928,9 @@ impl State {
             on_player_disconnected(index: usize),
             on_player_turn(active_player: usize),
             on_played(pieces: &[(Piece, i32, i32)]),
+            on_move_accepted(dealt: &[Piece]),
+            on_move_rejected(),
+            on_player_score(delta: u32, total: u32),
         ],
         CreateOrJoin => [
             on_room_name_invalid(),
@@ -1377,6 +1384,18 @@ impl Playing {
         }
         Ok(())
     }
+
+    fn on_move_accepted(&mut self, dealt: &[Piece]) -> JsError {
+        self.board.on_move_accepted(dealt)
+    }
+
+    fn on_move_rejected(&mut self) -> JsError {
+        Ok(())
+    }
+
+    fn on_player_score(&mut self, delta: u32, total: u32) -> JsError {
+        Ok(())
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1398,6 +1417,9 @@ fn on_message(msg: ServerMessage) -> JsError {
         PlayerDisconnected(index) => state.on_player_disconnected(index)?,
         PlayerTurn(active_player) => state.on_player_turn(active_player)?,
         Played(pieces) => state.on_played(&pieces)?,
+        MoveAccepted(dealt) => state.on_move_accepted(&dealt)?,
+        MoveRejected => state.on_move_rejected()?,
+        PlayerScore{delta, total} => state.on_player_score(delta, total)?,
     }
 
     Ok(())
