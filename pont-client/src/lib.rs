@@ -901,7 +901,7 @@ impl State {
         CreateOrJoin => [
             on_joined_room(room_name: &str, players: &[(String, u32, bool)],
                            active_players: usize,
-                           board: &HashMap<(i32, i32), Piece>,
+                           board: &Vec<((i32, i32), Piece)>,
                            pieces: &[Piece]) -> Playing,
         ],
     );
@@ -923,6 +923,7 @@ impl State {
             on_new_player(name: &str),
             on_player_disconnected(index: usize),
             on_player_turn(active_player: usize),
+            on_played(pieces: &[(Piece, i32, i32)]),
         ],
         CreateOrJoin => [
             on_room_name_invalid(),
@@ -970,9 +971,6 @@ impl Connecting {
     fn on_connected(self) -> JsResult<CreateOrJoin> {
         // Remove the "Connecting..." message
         self.base.clear_main_div()?;
-
-        // Insta-join a room
-        self.base.send(ClientMessage::CreateRoom("Matt".to_string()))?;
 
         // Return the new state
         CreateOrJoin::new(self.base)
@@ -1070,7 +1068,7 @@ impl CreateOrJoin {
     }
 
     fn on_joined_room(self, room_name: &str, players: &[(String, u32, bool)],
-                      active_player: usize, board: &HashMap<(i32, i32), Piece>,
+                      active_player: usize, board: &Vec<((i32, i32), Piece)>,
                       pieces: &[Piece]) -> JsResult<Playing>
     {
         self.base.clear_main_div()?;
@@ -1113,7 +1111,7 @@ impl CreateOrJoin {
 
 impl Playing {
     fn new(base: Base, room_name: &str, players: &[(String, u32, bool)],
-           active_player: usize, in_board: &HashMap<(i32, i32), Piece>,
+           active_player: usize, in_board: &Vec<((i32, i32), Piece)>,
            pieces: &[Piece]) -> JsResult<Playing>
     {
         let player_index = players.len() - 1;
@@ -1372,6 +1370,13 @@ impl Playing {
         self.base.send(ClientMessage::Play(m))?;
         Ok(())
     }
+
+    fn on_played(&mut self, pieces: &[(Piece, i32, i32)]) -> JsError {
+        for p in pieces {
+            self.board.add_piece(p.0, p.1, p.2)?;
+        }
+        Ok(())
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1392,6 +1397,7 @@ fn on_message(msg: ServerMessage) -> JsError {
         NewPlayer(name) => state.on_new_player(&name)?,
         PlayerDisconnected(index) => state.on_player_disconnected(index)?,
         PlayerTurn(active_player) => state.on_player_turn(active_player)?,
+        Played(pieces) => state.on_played(&pieces)?,
     }
 
     Ok(())

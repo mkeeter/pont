@@ -68,10 +68,12 @@ impl Room {
     }
 
     fn broadcast_except(&self, i: usize, s: ServerMessage) {
-        for (j, c) in self.connections.values().enumerate() {
+        for (j, p) in self.players.iter().enumerate() {
             if i != j {
-                self.players[*c].ws.as_ref().unwrap().unbounded_send(s.clone())
-                    .expect("Failed to send broadcast");
+                if let Some(ws) = p.ws.as_ref() {
+                    ws.unbounded_send(s.clone())
+                        .expect("Failed to send broadcast");
+                }
             }
         }
     }
@@ -96,7 +98,7 @@ impl Room {
         let (ws_tx, ws_rx) = unbounded();
         tokio::spawn(ws_rx
             .map(|c| serde_json::to_string(&c)
-                .expect("Could not encode"))
+                .expect(&format!("Could not encode {:?}", c)))
             .map(|t| WebsocketMessage::Text(t))
             .map(|m| Ok(m))
             .forward(ws));
@@ -123,7 +125,9 @@ impl Room {
                     .map(|p| (p.name.clone(), p.score, p.ws.is_some()))
                     .collect(),
                 active_player: self.active_player,
-                board: self.game.board.clone(),
+                board: self.game.board.iter()
+                    .map(|(k, v)| (*k, *v))
+                    .collect(),
                 pieces})
             .expect("Could not send JoinedRoom");
         // ...and send them a personalized welcome chat message
@@ -199,6 +203,8 @@ impl Room {
                     format!("{} scored {} points",
                             self.players[self.active_player].name,
                             score)));
+            self.broadcast_except(self.active_player,
+                ServerMessage::Played(pieces.iter().cloned().collect()));
             self.send(self.active_player,
                       ServerMessage::Information(
                           format!("You scored {} points", score)));

@@ -24,7 +24,7 @@ pub enum ServerMessage {
         room_name: String,
         players: Vec<(String, u32, bool)>,
         active_player: usize,
-        board: HashMap<(i32, i32), Piece>,
+        board: Vec<((i32, i32), Piece)>,
         pieces: Vec<Piece>,
     },
     UnknownRoom(String),
@@ -36,6 +36,7 @@ pub enum ServerMessage {
     NewPlayer(String),
     PlayerDisconnected(usize),
     PlayerTurn(usize),
+    Played(Vec<(Piece, i32, i32)>),
 
     /*
     Players {
