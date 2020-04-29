@@ -130,10 +130,6 @@ impl Room {
                     .collect(),
                 pieces})
             .expect("Could not send JoinedRoom");
-        // ...and send them a personalized welcome chat message
-        ws_tx.unbounded_send(ServerMessage::Information(
-                format!("Welcome, {}!", player_name)))
-            .expect("Could not send JoinedRoom");
 
         self.started = true;
     }
@@ -149,13 +145,6 @@ impl Room {
             info!("[{}] Active player changed to {}", self.name,
                   self.players[self.active_player].name);
 
-            self.broadcast_except(self.active_player,
-                ServerMessage::Information(
-                    format!("It is now {}'s turn",
-                        self.players[self.active_player].name)));
-            self.send(self.active_player,
-                      ServerMessage::Information(
-                          "It's your turn!".to_string()));
             self.broadcast(ServerMessage::PlayerTurn(self.active_player));
         }
     }
@@ -166,8 +155,6 @@ impl Room {
             info!("[{}] Removed disconnected player '{}'",
                   self.name, player_name);
             self.players[p].ws = None;
-            self.broadcast(ServerMessage::Information(
-                            format!("{} disconnected", player_name)));
             self.broadcast(ServerMessage::PlayerDisconnected(p));
 
             // Find the next active player and broadcast out that info

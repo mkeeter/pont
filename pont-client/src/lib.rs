@@ -912,6 +912,7 @@ struct Playing {
     score_table: HtmlElement,
     player_index: usize,
     active_player: usize,
+    player_names: Vec<String>,
 
     board: Board,
 
@@ -1112,6 +1113,7 @@ impl CreateOrJoin {
         self.base.clear_main_div()?;
         let mut p = Playing::new(self.base, room_name, players,
                                  active_player, board, pieces)?;
+        p.on_information(&format!("Welcome, {}!", players.last().unwrap().0))?;
         p.on_player_turn(active_player)?;
         Ok(p)
     }
@@ -1240,6 +1242,7 @@ impl Playing {
             score_table,
             player_index,
             active_player,
+            player_names: Vec::new(),
 
             _keyup_cb: keyup_cb,
         };
@@ -1296,7 +1299,7 @@ impl Playing {
         Ok(())
     }
 
-    fn add_player_row(&self, name: String, score: usize, connected: bool)
+    fn add_player_row(&mut self, name: String, score: usize, connected: bool)
         -> JsError
     {
         let tr = self.base.doc.create_element("tr")?;
@@ -1321,6 +1324,7 @@ impl Playing {
         }
 
         self.score_table.append_child(&tr)?;
+        self.player_names.push(name);
 
         Ok(())
     }
@@ -1335,7 +1339,7 @@ impl Playing {
         }
     }
 
-    fn on_new_player(&self, name: &str) -> JsError {
+    fn on_new_player(&mut self, name: &str) -> JsError {
         // Append a player to the bottom of the scores list
         self.add_player_row(name.to_string(), 0, true)?;
         self.on_information(&format!("{} joined the room", name))
@@ -1346,7 +1350,9 @@ impl Playing {
             .item((index + 1) as u32)
             .unwrap()
             .dyn_into::<HtmlElement>()?;
-        c.class_list().add_1("disconnected")
+        c.class_list().add_1("disconnected")?;
+        self.on_information(&format!("{} disconnected",
+                                     self.player_names[index]))
     }
 
     fn on_player_turn(&mut self, active_player: usize) -> JsError {
@@ -1365,6 +1371,14 @@ impl Playing {
             .dyn_into::<HtmlElement>()?
             .class_list()
             .add_1("active")?;
+
+        if self.active_player == self.player_index {
+            self.on_information("It's your turn!")
+        } else {
+            self.on_information(
+                &format!("It's {}'s turn!",
+                         self.player_names[self.active_player]))
+        }?;
 
         self.board.set_my_turn(active_player == self.player_index)
     }
