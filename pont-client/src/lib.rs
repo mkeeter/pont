@@ -3,7 +3,7 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen::convert::FromWasmAbi;
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use web_sys::{
     Element,
     Event,
@@ -39,6 +39,14 @@ impl DocExt for Document {
     fn create_svg_element(&self, t: &str) -> JsResult<Element> {
         self.create_element_ns(Some("http://www.w3.org/2000/svg"), t)
     }
+}
+
+fn get_time_ms() -> f64 {
+    web_sys::window()
+        .expect("No global window found")
+        .performance()
+        .expect("No performance object found")
+        .now()
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -120,6 +128,7 @@ enum DropTarget {
     ReturnToHand,
 }
 
+struct DropManyToGrid(Vec<TileAnimation>);
 struct ReturnToHand(TileAnimation);
 struct DragPan(Pos);
 struct ReturnManyToHand(Vec<TileAnimation>);
@@ -129,6 +138,7 @@ enum DragState {
     Idle,
     Dragging(Dragging),
     DropToGrid(DropToGrid),
+    DropManyToGrid(DropManyToGrid),
     ReturnToHand(ReturnToHand),
     DragPan(DragPan),
     ReturnManyToHand(ReturnManyToHand),
@@ -339,6 +349,8 @@ impl Board {
             DragState::Idle => (),
             _ => return Ok(()),
         }
+        evt.prevent_default();
+
         let p = self.mouse_pos(&evt);
         self.drag = DragState::DragPan(DragPan(
             (p.0 - self.pan_offset.0, p.1 - self.pan_offset.1)));
@@ -357,6 +369,8 @@ impl Board {
 
     fn on_pan_move(&mut self, evt: PointerEvent) -> JsError {
         if let DragState::DragPan(d) = &self.drag {
+            evt.prevent_default();
+
             let p = self.mouse_pos(&evt);
             self.pan_offset = (p.0 - (d.0).0, p.1 - (d.0).1);
             self.pan_group.set_attribute("transform",
@@ -369,9 +383,12 @@ impl Board {
     }
 
     fn on_pan_end(&mut self, evt: PointerEvent) -> JsError {
+        evt.prevent_default();
+
         let target = evt.target()
             .unwrap()
             .dyn_into::<Element>()?;
+        target.release_pointer_capture(evt.pointer_id())?;
         target.remove_event_listener_with_callback("pointermove",
                 self.pan_move_cb.as_ref().unchecked_ref())?;
         target.remove_event_listener_with_callback("pointerup",
@@ -387,8 +404,8 @@ impl Board {
             DragState::Idle => (),
             _ => return Ok(()),
         }
-
         evt.prevent_default();
+
         let mut target = evt.target()
             .unwrap()
             .dyn_into::<Element>()?;
@@ -526,6 +543,7 @@ impl Board {
         if let DragState::Dragging(d) = &self.drag {
             evt.prevent_default();
 
+            d.target.release_pointer_capture(evt.pointer_id())?;
             d.target.remove_event_listener_with_callback("pointermove",
                     self.pointer_move_cb.as_ref().unchecked_ref())?;
             d.target.remove_event_listener_with_callback("pointerup",
@@ -560,12 +578,7 @@ impl Board {
                     })
                 }
             };
-
-            web_sys::window()
-                .expect("no global `window` exists")
-                .request_animation_frame(self.anim_cb.as_ref()
-                                         .unchecked_ref())?;
-
+            self.request_animation_frame()?;
         }
         Ok(())
     }
@@ -574,10 +587,7 @@ impl Board {
         match &mut self.drag {
             DragState::DropToGrid(d) => {
                 if d.anim.run(t)? {
-                    web_sys::window()
-                        .expect("no global `window` exists")
-                        .request_animation_frame(self.anim_cb.as_ref()
-                                                 .unchecked_ref())?;
+                    self.request_animation_frame()?;
                 } else {
                     self.pan_group.remove_child(&d.shadow)?;
                     self.drag = DragState::Idle;
@@ -587,10 +597,7 @@ impl Board {
             },
             DragState::ReturnToHand(d) => {
                 if d.0.run(t)? {
-                    web_sys::window()
-                        .expect("no global `window` exists")
-                        .request_animation_frame(self.anim_cb.as_ref()
-                                                 .unchecked_ref())?;
+                    self.request_animation_frame()?;
                 } else {
                     self.drag = DragState::Idle;
                     if self.tentative.is_empty() {
@@ -605,26 +612,21 @@ impl Board {
                     any_running |= a.run(t)?;
                 }
                 if any_running {
-                    web_sys::window()
-                        .expect("no global `window` exists")
-                        .request_animation_frame(self.anim_cb.as_ref()
-                                                 .unchecked_ref())?;
+                    self.request_animation_frame()?;
                 } else {
                     self.drag = DragState::Idle;
                     self.accept_button.set_disabled(true);
                     self.reject_button.set_disabled(true);
                 }
             },
-            DragState::ConsolidateHand(d) => {
+            DragState::ConsolidateHand(ConsolidateHand(d)) |
+            DragState::DropManyToGrid(DropManyToGrid(d)) => {
                 let mut any_running = false;
-                for a in d.0.iter() {
+                for a in d.iter() {
                     any_running |= a.run(t)?;
                 }
                 if any_running {
-                    web_sys::window()
-                        .expect("no global `window` exists")
-                        .request_animation_frame(self.anim_cb.as_ref()
-                                                 .unchecked_ref())?;
+                    self.request_animation_frame()?;
                 } else {
                     self.drag = DragState::Idle;
                 }
@@ -635,7 +637,14 @@ impl Board {
         Ok(())
     }
 
-    fn add_hand(&mut self, p: Piece) -> JsError {
+    fn request_animation_frame(&self) -> JsResult<i32> {
+        web_sys::window()
+            .expect("no global `window` exists")
+            .request_animation_frame(self.anim_cb.as_ref()
+                                     .unchecked_ref())
+    }
+
+    fn add_hand(&mut self, p: Piece) -> JsResult<Element> {
         let g = self.new_piece(p)?;
         self.svg.append_child(&g)?;
         g.class_list().add_1("piece")?;
@@ -643,9 +652,9 @@ impl Board {
                                               5 + 15 * self.hand.len()))?;
         g.add_event_listener_with_callback("pointerdown",
             self.pointer_down_cb.as_ref().unchecked_ref())?;
-        self.hand.push((p, g));
+        self.hand.push((p, g.clone()));
 
-        Ok(())
+        Ok(g)
     }
 
     fn new_piece(&self, p: Piece) -> JsResult<Element> {
@@ -734,7 +743,7 @@ impl Board {
         Ok(g)
     }
 
-    fn add_piece(&mut self, p: Piece, x: i32, y: i32) -> JsError {
+    fn add_piece(&mut self, p: Piece, x: i32, y: i32) -> JsResult<Element> {
         self.grid.insert((x, y), p);
 
         let g = self.new_piece(p)?;
@@ -743,7 +752,7 @@ impl Board {
         g.set_attribute("transform",
                         &format!("translate({} {})", x * 10, y * 10))?;
 
-        Ok(())
+        Ok(g)
     }
 
     fn on_reject_button(&mut self, evt: Event) -> JsError {
@@ -775,11 +784,7 @@ impl Board {
                     t0: evt.time_stamp()
                 }).collect()));
         self.tentative.clear();
-
-        web_sys::window()
-            .expect("no global `window` exists")
-            .request_animation_frame(self.anim_cb.as_ref()
-                                     .unchecked_ref())?;
+        self.request_animation_frame()?;
         Ok(())
     }
 
@@ -815,11 +820,7 @@ impl Board {
         let mut prev_hand = Vec::new();
         std::mem::swap(&mut prev_hand, &mut self.hand);
         let mut anims = Vec::new();
-        let t0 = web_sys::window()
-            .expect("No global window found")
-            .performance()
-            .expect("No performance object found")
-            .now();
+        let t0 = get_time_ms();
         for (i, (piece, element)) in prev_hand.into_iter().enumerate() {
             if let Some((x, y)) = placed.remove(&i) {
                 element.class_list().remove_1("piece")?;
@@ -841,19 +842,16 @@ impl Board {
         }
         for d in dealt {
             let x = self.hand.len() as f32 * 15.0 + 5.0;
-            self.add_hand(*d)?;
+            let target = self.add_hand(*d)?;
             anims.push(TileAnimation {
-                target: self.hand.last().unwrap().1.clone(),
+                target: target,
                 start: (x, 220.0),
                 end: (x, 185.0),
                 t0
             })
         }
         self.drag = DragState::ConsolidateHand(ConsolidateHand(anims));
-        web_sys::window()
-            .expect("no global `window` exists")
-            .request_animation_frame(self.anim_cb.as_ref()
-                                     .unchecked_ref())?;
+        self.request_animation_frame()?;
 
         Ok(())
     }
@@ -866,10 +864,6 @@ pub struct Base {
     doc: Document,
     main_div: HtmlElement,
     ws: WebSocket,
-
-    _open_cb: JsClosure<JsValue>,
-    _message_cb: JsClosure<MessageEvent>,
-    _close_cb: JsClosure<Event>,
 }
 
 impl Base {
@@ -981,7 +975,7 @@ impl State {
 unsafe impl Send for State { /* YOLO */}
 
 lazy_static::lazy_static! {
-    static ref HANDLE: Arc<Mutex<State>> = Arc::new(Mutex::new(State::Empty));
+    static ref HANDLE: Mutex<State> = Mutex::new(State::Empty);
 }
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -1269,8 +1263,7 @@ impl Playing {
         Ok(out)
     }
 
-    fn on_chat(&self, from: &str, msg: &str) -> JsError
-    {
+    fn on_chat(&self, from: &str, msg: &str) -> JsError {
         let p = self.base.doc.create_element("p")?;
         p.set_class_name("msg");
 
@@ -1287,12 +1280,11 @@ impl Playing {
         p.append_child(&s)?;
 
         self.chat_div.append_child(&p)?;
-        p.scroll_into_view();
+        self.chat_div.set_scroll_top(self.chat_div.scroll_height());
         Ok(())
     }
 
-    fn on_information(&self, msg: &str) -> JsError
-    {
+    fn on_information(&self, msg: &str) -> JsError {
         let p = self.base.doc.create_element("p")?;
         p.set_class_name("msg");
 
@@ -1300,7 +1292,7 @@ impl Playing {
         i.set_text_content(Some(msg));
         p.append_child(&i)?;
         self.chat_div.append_child(&p)?;
-        p.scroll_into_view();
+        self.chat_div.set_scroll_top(self.chat_div.scroll_height());
         Ok(())
     }
 
@@ -1416,9 +1408,18 @@ impl Playing {
     }
 
     fn on_played(&mut self, pieces: &[(Piece, i32, i32)]) -> JsError {
-        for p in pieces {
-            self.board.add_piece(p.0, p.1, p.2)?;
+        let mut anims = Vec::new();
+        let t0 = get_time_ms();
+        for (piece, x, y) in pieces {
+            let target = self.board.add_piece(*piece, *x, *y)?;
+            anims.push(TileAnimation {
+                target,
+                start: (225.0, *y as f32 * 10.0),
+                end: (*x as f32 * 10.0, *y as f32 * 10.0),
+                t0 });
         }
+        self.board.drag = DragState::DropManyToGrid(DropManyToGrid(anims));
+        self.board.request_animation_frame()?;
         Ok(())
     }
 
@@ -1488,32 +1489,23 @@ pub fn main() -> JsError {
     let hostname = doc.location().unwrap().hostname()?;
     let ws = WebSocket::new(&format!("ws://{}:8080", hostname))?;
 
-    let open_cb = set_event_cb(&ws, "open", move |_: JsValue| {
+    // The websocket callbacks are long-lived, so we forget them here
+    set_event_cb(&ws, "open", move |_: JsValue| {
         HANDLE.lock().unwrap()
             .on_connected()
-    });
-
-    let message_cb = set_event_cb(&ws, "message", move |e: MessageEvent| {
+    }).forget();
+    set_event_cb(&ws, "message", move |e: MessageEvent| {
         let msg = serde_json::from_str(&e.data().as_string().unwrap())
             .map_err(|e| JsValue::from_str(
                     &format!("Failed to deserialize: {}", e)))?;
         on_message(msg)
-    });
-
-    let close_cb = set_event_cb(&ws, "close", move |_: Event| -> JsError {
+    }).forget();
+    set_event_cb(&ws, "close", move |_: Event| -> JsError {
         console_log!("Socket closed");
         Ok(())
-    });
+    }).forget();
 
-    let base = Base {
-        doc,
-        main_div,
-        ws,
-
-        _open_cb: open_cb,
-        _message_cb: message_cb,
-        _close_cb: close_cb,
-    };
+    let base = Base { doc, main_div, ws };
     *HANDLE.lock().unwrap() = State::Connecting(Connecting { base });
 
     Ok(())

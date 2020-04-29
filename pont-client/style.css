@@ -240,10 +240,11 @@ div#board {
 div#svg {
     margin-bottom: 10px;
     position: relative;
+    touch-action: none;
 }
 
 /* Two-column layout */
-@media only screen and (min-width: 600px) {
+@media only screen and (min-width: 750px) {
     div#game {
         grid-template-columns: 2fr 1fr;
     }
@@ -256,7 +257,7 @@ div#svg {
 }
 
 /* Three-column layout */
-@media only screen and (min-width: 1000px) {
+@media only screen and (min-width: 1200px) {
     div#svg {
         margin-bottom: 0px;
     }
