@@ -188,6 +188,7 @@ impl Room {
             // Broadcast the new score to all players
             self.players[self.active_player].score += score;
             self.broadcast(ServerMessage::PlayerScore {
+                index: self.active_player,
                 delta: score,
                 total: self.players[self.active_player].score,
             });

@@ -968,7 +968,7 @@ impl State {
             on_played(pieces: &[(Piece, i32, i32)]),
             on_move_accepted(dealt: &[Piece]),
             on_move_rejected(),
-            on_player_score(delta: u32, total: u32),
+            on_player_score(index: usize, delta: u32, total: u32),
         ],
         CreateOrJoin => [
             on_room_name_invalid(),
@@ -1322,7 +1322,7 @@ impl Playing {
         tr.append_child(&td)?;
 
         let td = self.base.doc.create_element("td")?;
-        td.set_text_content(Some(&format!("{}", score)));
+        td.set_text_content(Some(&score.to_string()));
         tr.append_child(&td)?;
 
         if !connected {
@@ -1451,8 +1451,22 @@ impl Playing {
         Ok(())
     }
 
-    fn on_player_score(&mut self, delta: u32, total: u32) -> JsError {
-        Ok(())
+    fn on_player_score(&mut self, index: usize, delta: u32, total: u32)
+        -> JsError
+    {
+        self.score_table.child_nodes()
+            .item(index as u32 + 1)
+            .unwrap()
+            .child_nodes()
+            .item(2)
+            .unwrap()
+            .set_text_content(Some(&total.to_string()));
+        if index == self.player_index {
+            self.on_information(&format!("You scored {} points", delta))
+        } else {
+            self.on_information(&format!("{} scored {} points",
+                                         self.player_names[index], delta))
+        }
     }
 }
 
@@ -1466,21 +1480,20 @@ fn on_message(msg: ServerMessage) -> JsError {
     let mut state = HANDLE.lock().unwrap();
 
     match msg {
-        UnknownRoom(name) => state.on_unknown_room(&name)?,
+        UnknownRoom(name) => state.on_unknown_room(&name),
         JoinedRoom{room_name, players, active_player, board, pieces} =>
-            state.on_joined_room(&room_name, &players, active_player, &board, &pieces)?,
-        Chat{from, message} => state.on_chat(&from, &message)?,
-        Information(message) => state.on_information(&message)?,
-        NewPlayer(name) => state.on_new_player(&name)?,
-        PlayerDisconnected(index) => state.on_player_disconnected(index)?,
-        PlayerTurn(active_player) => state.on_player_turn(active_player)?,
-        Played(pieces) => state.on_played(&pieces)?,
-        MoveAccepted(dealt) => state.on_move_accepted(&dealt)?,
-        MoveRejected => state.on_move_rejected()?,
-        PlayerScore{delta, total} => state.on_player_score(delta, total)?,
+            state.on_joined_room(&room_name, &players, active_player, &board, &pieces),
+        Chat{from, message} => state.on_chat(&from, &message),
+        Information(message) => state.on_information(&message),
+        NewPlayer(name) => state.on_new_player(&name),
+        PlayerDisconnected(index) => state.on_player_disconnected(index),
+        PlayerTurn(active_player) => state.on_player_turn(active_player),
+        Played(pieces) => state.on_played(&pieces),
+        MoveAccepted(dealt) => state.on_move_accepted(&dealt),
+        MoveRejected => state.on_move_rejected(),
+        PlayerScore{index, delta, total} =>
+            state.on_player_score(index, delta, total),
     }
-
-    Ok(())
 }
 
 ////////////////////////////////////////////////////////////////////////////////

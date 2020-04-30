@@ -40,6 +40,7 @@ pub enum ServerMessage {
     MoveAccepted(Vec<Piece>),
     MoveRejected,
     PlayerScore {
+        index: usize,
         delta: u32,
         total: u32,
     },
