@@ -20,7 +20,7 @@ use web_sys::{
     WebSocket,
 };
 
-use pont_common::{ClientMessage, ServerMessage, Shape, Color, Piece};
+use pont_common::{ClientMessage, ServerMessage, Shape, Color, Piece, Game};
 
 // Minimal logging macro
 macro_rules! console_log {
@@ -448,8 +448,11 @@ impl Board {
             ty += self.pan_offset.1;
             target.set_attribute("transform",
                                    &format!("translate({} {})", tx, ty))?;
-            (self.tentative.remove(&(x, y)).unwrap(), Some((x, y)))
+            let hand_index = self.tentative.remove(&(x, y)).unwrap();
+            self.mark_invalid()?;
+            (hand_index, Some((x, y)))
         };
+        target.class_list().remove_1("invalid")?;
 
         // Move to the back of the SVG object, so it's on top
         self.svg.append_child(&target)?;
@@ -545,6 +548,22 @@ impl Board {
         }
     }
 
+    fn mark_invalid(&self) -> JsResult<bool> {
+        let mut b = self.grid.clone();
+        for (pos, index) in self.tentative.iter() {
+            b.insert(*pos, self.hand[*index].0);
+        }
+        let invalid = Game::invalid(&b);
+        for (pos, index) in self.tentative.iter() {
+            if invalid.contains(pos) {
+                self.hand[*index].1.class_list().add_1("invalid")?;
+            } else {
+                self.hand[*index].1.class_list().remove_1("invalid")?;
+            }
+        }
+        Ok(invalid.is_empty())
+    }
+
     fn on_pointer_up(&mut self, evt: PointerEvent) -> JsError {
         if let DragState::Dragging(d) = &self.drag {
             evt.prevent_default();
@@ -584,6 +603,7 @@ impl Board {
                     })
                 }
             };
+            self.mark_invalid()?;
             self.request_animation_frame()?;
         }
         Ok(())
@@ -597,7 +617,7 @@ impl Board {
                 } else {
                     self.pan_group.remove_child(&d.shadow)?;
                     self.drag = DragState::Idle;
-                    self.accept_button.set_disabled(false);
+                    self.accept_button.set_disabled(!self.mark_invalid()?);
                     self.reject_button.set_disabled(false);
                 }
             },
@@ -609,6 +629,8 @@ impl Board {
                     if self.tentative.is_empty() {
                         self.accept_button.set_disabled(true);
                         self.reject_button.set_disabled(true);
+                    } else {
+                        self.accept_button.set_disabled(!self.mark_invalid()?);
                     }
                 }
             },
@@ -773,6 +795,7 @@ impl Board {
         for (_, i) in &tiles {
             let t = &self.hand[*i].1;
             self.pan_group.remove_child(t)?;
+            t.class_list().remove_1("invalid")?;
             let (dx, dy) = Self::get_transform(t);
             t.set_attribute(
                 "transform", &format!("translate({} {})",
@@ -789,7 +812,6 @@ impl Board {
                     end: ((i * 15 + 5) as f32, 185.0),
                     t0: evt.time_stamp()
                 }).collect()));
-        self.tentative.clear();
         self.request_animation_frame()?;
         Ok(())
     }

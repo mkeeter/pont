@@ -145,10 +145,39 @@ impl Game {
         }
     }
 
+    fn connected(board: &HashMap<(i32, i32), Piece>) -> bool {
+        let mut todo: Vec<(i32, i32)> =
+            board.keys().take(1).cloned().collect();
+
+        let mut seen = HashSet::new();
+        while let Some(t) = todo.pop() {
+            if seen.insert(t) {
+                for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)].iter() {
+                    let c = (t.0 + dx, t.1 + dy);
+                    if board.contains_key(&c) {
+                        todo.push(c);
+                    }
+                }
+            }
+        }
+
+        seen.len() == board.len()
+    }
+
     // Checks whether the given board is valid,
     // returning a vec of invalid piece locations
-    pub fn invalid(board: &HashMap<(i32, i32), Piece>) -> Vec<(i32, i32)> {
-        let mut todo: Vec<(i32, i32)> = board.keys().cloned().collect();
+    pub fn invalid(board: &HashMap<(i32, i32), Piece>) -> HashSet<(i32, i32)> {
+        // The empty board has no invalid pieces, by definition
+        if board.is_empty() {
+            return HashSet::new();
+        }
+
+        // If a board has disconnected components, then it's all invalid
+        let todo = board.keys().cloned().collect();
+        if !Self::connected(board) {
+            return todo;
+        }
+
         let mut checked_h = HashSet::new();
         let mut checked_v = HashSet::new();
 
@@ -158,7 +187,7 @@ impl Game {
             for i in 0.. {
                 let c = f(i);
                 if let Some(piece) = board.get(&c) {
-                    out.push((piece, c));
+                    out.push((*piece, c));
                 } else {
                     break;
                 }
@@ -166,28 +195,54 @@ impl Game {
             for i in 1.. {
                 let c = f(-i);
                 if let Some(piece) = board.get(&c) {
-                    out.push((piece, c));
+                    out.push((*piece, c));
                 } else {
                     break;
                 }
             }
-            return out;
+            out
         };
 
-        while let Some((x, y)) = todo.pop() {
+        let check = |pieces: &[(Piece, (i32, i32))]| -> bool {
+            let mut seen_colors = HashSet::new();
+            let mut seen_shapes = HashSet::new();
+            let mut seen_pieces = HashSet::new();
+            for (piece, _pos) in pieces {
+                // Detect duplicate pieces
+                if !seen_pieces.insert(*piece) {
+                    return false;
+                }
+                seen_colors.insert(piece.0);
+                seen_shapes.insert(piece.1);
+            }
+            seen_colors.len() == 1 || seen_shapes.len() == 1
+        };
+
+        // Check that each row and column contains valid pieces
+        for (x, y) in todo.into_iter() {
             if !checked_h.contains(&(x, y)) {
                 let row = explore(&|i| (x + i, y));
-                for (_, c) in row.into_iter() {
-                    checked_h.insert(c);
+                for (_, c) in row.iter() {
+                    checked_h.insert(*c);
+                }
+                if !check(&row) {
+                    for (_, c) in row.into_iter() {
+                        out.insert(c);
+                    }
                 }
             }
             if !checked_v.contains(&(x, y)) {
                 let col = explore(&|i| (x, y + i));
-                for (_, c) in col.into_iter() {
-                    checked_v.insert(c);
+                for (_, c) in col.iter() {
+                    checked_v.insert(*c);
+                }
+                if !check(&col) {
+                    for (_, c) in col.into_iter() {
+                        out.insert(c);
+                    }
                 }
             }
         }
-        out.into_iter().collect()
+        out
     }
 }

@@ -17,6 +17,7 @@
     --blue: #83a598;
     --green: #b8bb26;
     --red: #fb4934;
+    --dark-red: #9d0006;
 }
 
 body {
@@ -139,6 +140,10 @@ g.piece rect.tile {
     fill: var(--dark1);
     stroke-width: 0.5;
     stroke: var(--dark4);
+}
+g.invalid rect.tile {
+    fill: var(--dark-red);
+    stroke: var(--red);
 }
 svg#game.nyt g.piece {
     pointer-events: none;
