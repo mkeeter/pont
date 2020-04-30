@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use serde::{Serialize, Deserialize};
 
 use rand::thread_rng;
@@ -143,5 +143,51 @@ impl Game {
         } else {
             None
         }
+    }
+
+    // Checks whether the given board is valid,
+    // returning a vec of invalid piece locations
+    pub fn invalid(board: &HashMap<(i32, i32), Piece>) -> Vec<(i32, i32)> {
+        let mut todo: Vec<(i32, i32)> = board.keys().cloned().collect();
+        let mut checked_h = HashSet::new();
+        let mut checked_v = HashSet::new();
+
+        let mut out = HashSet::new();
+        let explore = |f: &dyn Fn(i32) -> (i32, i32)| {
+            let mut out = Vec::new();
+            for i in 0.. {
+                let c = f(i);
+                if let Some(piece) = board.get(&c) {
+                    out.push((piece, c));
+                } else {
+                    break;
+                }
+            }
+            for i in 1.. {
+                let c = f(-i);
+                if let Some(piece) = board.get(&c) {
+                    out.push((piece, c));
+                } else {
+                    break;
+                }
+            }
+            return out;
+        };
+
+        while let Some((x, y)) = todo.pop() {
+            if !checked_h.contains(&(x, y)) {
+                let row = explore(&|i| (x + i, y));
+                for (_, c) in row.into_iter() {
+                    checked_h.insert(c);
+                }
+            }
+            if !checked_v.contains(&(x, y)) {
+                let col = explore(&|i| (x, y + i));
+                for (_, c) in col.into_iter() {
+                    checked_v.insert(c);
+                }
+            }
+        }
+        out.into_iter().collect()
     }
 }
