@@ -26,6 +26,7 @@ lazy_static::lazy_static! {
     // words.txt is the EFF's random word list for passphrases
     static ref WORD_LIST: Vec<&'static str> = include_str!("words.txt")
         .split('\n')
+        .filter(|w| !w.is_empty())
         .collect();
 }
 
@@ -57,7 +58,7 @@ struct Room {
 
 impl Room {
     fn running(&self) -> bool {
-        !self.started || self.connections.len() > 0
+        !self.started || !self.connections.is_empty()
     }
 
     fn broadcast(&self, s: ServerMessage) {
@@ -98,9 +99,9 @@ impl Room {
         let (ws_tx, ws_rx) = unbounded();
         tokio::spawn(ws_rx
             .map(|c| serde_json::to_string(&c)
-                .expect(&format!("Could not encode {:?}", c)))
-            .map(|t| WebsocketMessage::Text(t))
-            .map(|m| Ok(m))
+                .unwrap_or_else(|_| panic!("Could not encode {:?}", c)))
+            .map(WebsocketMessage::Text)
+            .map(Ok)
             .forward(ws));
 
         // Add the new player to the active list of connections and players
@@ -113,9 +114,9 @@ impl Room {
             }
         }
         self.players.push(Player {
-            name: player_name.clone(),
+            name: player_name,
             score: 0,
-            hand: hand,
+            hand,
             ws: Some(ws_tx.clone()) });
 
         // Tell the player that they have joined the room
@@ -135,7 +136,7 @@ impl Room {
     }
 
     fn next_player(&mut self) {
-        if self.connections.len() > 0 {
+        if !self.connections.is_empty() {
             self.active_player = (self.active_player + 1) %
                                   self.players.len();
             while self.players[self.active_player].ws.is_none() {
@@ -209,7 +210,7 @@ impl Room {
 
             // Broadcast the play to other players
             self.broadcast_except(self.active_player,
-                ServerMessage::Played(pieces.iter().cloned().collect()));
+                ServerMessage::Played(pieces.to_vec()));
         }
         self.next_player();
     }
@@ -223,13 +224,13 @@ impl Room {
                     .map_or("unknown", |i| &self.players[*i].name);
                 self.broadcast(ServerMessage::Chat{
                             from: name.to_string(),
-                            message: c.clone()});
+                            message: c});
             },
             ClientMessage::CreateRoom(_) | ClientMessage::JoinRoom(_, _) => {
                 warn!("[{}] Invalid client message {:?}", self.name, msg);
             },
             ClientMessage::Play(pieces) => {
-                if let Some(i) = self.connections.get(&addr).map(|i| *i) {
+                if let Some(i) = self.connections.get(&addr).copied() {
                     if i == self.active_player {
                         self.on_play(&pieces);
                     } else {
@@ -278,8 +279,8 @@ async fn run_room(room_name: String,
     use Either::*;
 
     let mut inputs = futures::stream::select(
-        in_rx.map(|p| Left(p)),
-        ws_rx.map(|m| Right(m)));
+        in_rx.map(Left),
+        ws_rx.map(Right));
 
     while room.running() {
         if let Some(m) = inputs.next().await {
@@ -292,7 +293,7 @@ async fn run_room(room_name: String,
 
                     // Messages from every websocket are asynchronously
                     // forwarded to a single MPSC queue
-                    let addr = p.addr.clone();
+                    let addr = p.addr;
                     tokio::spawn(outgoing.map(|m|
                         match m {
                             Ok(WebsocketMessage::Text(t)) => Some(

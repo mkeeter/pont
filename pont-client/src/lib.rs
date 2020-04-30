@@ -965,7 +965,7 @@ impl State {
         CreateOrJoin => [
             on_joined_room(room_name: &str, players: &[(String, u32, bool)],
                            active_players: usize,
-                           board: &Vec<((i32, i32), Piece)>,
+                           board: &[((i32, i32), Piece)],
                            pieces: &[Piece]) -> Playing,
         ],
     );
@@ -1135,7 +1135,7 @@ impl CreateOrJoin {
     }
 
     fn on_joined_room(self, room_name: &str, players: &[(String, u32, bool)],
-                      active_player: usize, board: &Vec<((i32, i32), Piece)>,
+                      active_player: usize, board: &[((i32, i32), Piece)],
                       pieces: &[Piece]) -> JsResult<Playing>
     {
         self.base.clear_main_div()?;
@@ -1179,7 +1179,7 @@ impl CreateOrJoin {
 
 impl Playing {
     fn new(base: Base, room_name: &str, players: &[(String, u32, bool)],
-           active_player: usize, in_board: &Vec<((i32, i32), Piece)>,
+           active_player: usize, in_board: &[((i32, i32), Piece)],
            pieces: &[Piece]) -> JsResult<Playing>
     {
         let player_index = players.len() - 1;
