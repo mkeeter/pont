@@ -131,7 +131,7 @@ enum DropTarget {
 struct DropManyToGrid(Vec<TileAnimation>);
 struct ReturnToHand(TileAnimation);
 struct DragPan(Pos);
-struct ReturnManyToHand(Vec<TileAnimation>);
+struct ReturnAllToHand(Vec<TileAnimation>);
 struct ConsolidateHand(Vec<TileAnimation>);
 
 enum DragState {
@@ -141,7 +141,7 @@ enum DragState {
     DropManyToGrid(DropManyToGrid),
     ReturnToHand(ReturnToHand),
     DragPan(DragPan),
-    ReturnManyToHand(ReturnManyToHand),
+    ReturnAllToHand(ReturnAllToHand),
     ConsolidateHand(ConsolidateHand),
 }
 
@@ -612,7 +612,7 @@ impl Board {
                     }
                 }
             },
-            DragState::ReturnManyToHand(d) => {
+            DragState::ReturnAllToHand(d) => {
                 let mut any_running = false;
                 for a in d.0.iter() {
                     any_running |= a.run(t)?;
@@ -780,7 +780,7 @@ impl Board {
                         dy - self.pan_offset.1))?;
             self.svg.append_child(t)?;
         }
-        self.drag = DragState::ReturnManyToHand(ReturnManyToHand(
+        self.drag = DragState::ReturnAllToHand(ReturnAllToHand(
             tiles.drain().map(|((tx, ty), i)|
                 TileAnimation {
                     target: self.hand[i].1.clone(),
