@@ -349,6 +349,12 @@ impl Board {
             DragState::Idle => (),
             _ => return Ok(()),
         }
+        // No panning before placing the first piece, to prevent griefing by
+        // placing the piece far from the visible region.
+        if self.grid.is_empty() {
+            return Ok(());
+        }
+
         evt.prevent_default();
 
         let p = self.mouse_pos(&evt);
