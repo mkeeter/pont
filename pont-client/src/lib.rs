@@ -554,7 +554,12 @@ impl Board {
         for (pos, index) in self.tentative.iter() {
             b.insert(*pos, self.hand[*index].0);
         }
-        let invalid = Game::invalid(&b);
+        let mut invalid = Game::invalid(&b);
+        if !Game::is_linear(&self.tentative.keys().cloned().collect()) {
+            for (pos, _index) in &self.tentative {
+                invalid.insert(*pos);
+            }
+        }
         for (pos, index) in self.tentative.iter() {
             if invalid.contains(pos) {
                 self.hand[*index].1.class_list().add_1("invalid")?;

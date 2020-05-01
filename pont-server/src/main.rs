@@ -178,13 +178,28 @@ impl Room {
     }
 
     fn on_play(&mut self, pieces: &[(Piece, i32, i32)]) {
+        let mut board = self.game.board.clone();
+        for (piece, x, y) in pieces.iter() {
+            board.insert((*x, *y), *piece);
+        }
+        if !Game::invalid(&board).is_empty() ||
+           !Game::is_linear(&pieces.iter().map(|p| (p.1, p.2)).collect())
+        {
+            warn!("[{}] Player {} tried to make an illegal move",
+                  self.name, self.players[self.active_player].name);
+            self.send(self.active_player, ServerMessage::MoveRejected);
+            return;
+        }
+
         for p in pieces {
             if !self.subtract_from_hand(p.0) {
                 warn!("[{}] Player {} tried to play an unowned piece {:?}",
                       self.name, self.players[self.active_player].name, p);
+                self.send(self.active_player, ServerMessage::MoveRejected);
                 return;
             }
         }
+
         if let Some(score) = self.game.play(pieces) {
             // Broadcast the new score to all players
             self.players[self.active_player].score += score;
@@ -211,8 +226,11 @@ impl Room {
             // Broadcast the play to other players
             self.broadcast_except(self.active_player,
                 ServerMessage::Played(pieces.to_vec()));
+        } else {
+            warn!("[{}] Player {} snuck an illegal move past the first filters",
+                  self.name, self.players[self.active_player].name);
+            self.send(self.active_player, ServerMessage::MoveRejected);
         }
-        self.next_player();
     }
 
     fn on_message(&mut self, addr: SocketAddr, msg: ClientMessage) {
@@ -233,6 +251,7 @@ impl Room {
                 if let Some(i) = self.connections.get(&addr).copied() {
                     if i == self.active_player {
                         self.on_play(&pieces);
+                        self.next_player();
                     } else {
                         warn!("[{}] Player {} out of turn", self.name, addr);
                     }

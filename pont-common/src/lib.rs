@@ -164,6 +164,16 @@ impl Game {
         seen.len() == board.len()
     }
 
+    pub fn is_linear(board: &HashSet<(i32, i32)>) -> bool {
+        let mut x_positions = HashSet::new();
+        let mut y_positions = HashSet::new();
+        for (x, y) in board.iter() {
+            x_positions.insert(x);
+            y_positions.insert(y);
+        }
+        return x_positions.len() == 1 || y_positions.len() == 1;
+    }
+
     // Checks whether the given board is valid,
     // returning a vec of invalid piece locations
     pub fn invalid(board: &HashMap<(i32, i32), Piece>) -> HashSet<(i32, i32)> {
