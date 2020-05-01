@@ -26,6 +26,7 @@ pub enum ServerMessage {
         active_player: usize,
         board: Vec<((i32, i32), Piece)>,
         pieces: Vec<Piece>,
+        remaining: usize,
     },
     UnknownRoom(String),
     Chat {
@@ -35,7 +36,7 @@ pub enum ServerMessage {
     Information(String),
     NewPlayer(String),
     PlayerDisconnected(usize),
-    PlayerTurn(usize),
+    PlayerTurn(usize, usize),
     Played(Vec<(Piece, i32, i32)>),
     MoveAccepted(Vec<Piece>),
     MoveRejected,

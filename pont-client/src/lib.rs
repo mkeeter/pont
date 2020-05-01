@@ -946,6 +946,7 @@ struct Playing {
     score_table: HtmlElement,
     player_index: usize,
     active_player: usize,
+    pieces_remaining: usize,
     player_names: Vec<String>,
 
     board: Board,
@@ -972,7 +973,8 @@ impl State {
             on_joined_room(room_name: &str, players: &[(String, u32, bool)],
                            active_players: usize,
                            board: &[((i32, i32), Piece)],
-                           pieces: &[Piece]) -> Playing,
+                           pieces: &[Piece],
+                           remaining: usize) -> Playing,
         ],
     );
 
@@ -992,7 +994,7 @@ impl State {
             on_information(msg: &str),
             on_new_player(name: &str),
             on_player_disconnected(index: usize),
-            on_player_turn(active_player: usize),
+            on_player_turn(active_player: usize, remaining: usize),
             on_played(pieces: &[(Piece, i32, i32)]),
             on_move_accepted(dealt: &[Piece]),
             on_move_rejected(),
@@ -1142,13 +1144,13 @@ impl CreateOrJoin {
 
     fn on_joined_room(self, room_name: &str, players: &[(String, u32, bool)],
                       active_player: usize, board: &[((i32, i32), Piece)],
-                      pieces: &[Piece]) -> JsResult<Playing>
+                      pieces: &[Piece], remaining: usize) -> JsResult<Playing>
     {
         self.base.clear_main_div()?;
         let mut p = Playing::new(self.base, room_name, players,
-                                 active_player, board, pieces)?;
+                                 active_player, board, pieces, remaining)?;
         p.on_information(&format!("Welcome, {}!", players.last().unwrap().0))?;
-        p.on_player_turn(active_player)?;
+        p.on_player_turn(active_player, remaining)?;
         Ok(p)
     }
 
@@ -1186,7 +1188,7 @@ impl CreateOrJoin {
 impl Playing {
     fn new(base: Base, room_name: &str, players: &[(String, u32, bool)],
            active_player: usize, in_board: &[((i32, i32), Piece)],
-           pieces: &[Piece]) -> JsResult<Playing>
+           pieces: &[Piece], remaining: usize) -> JsResult<Playing>
     {
         let player_index = players.len() - 1;
 
@@ -1276,6 +1278,7 @@ impl Playing {
             score_table,
             player_index,
             active_player,
+            pieces_remaining: remaining,
             player_names: Vec::new(),
 
             _keyup_cb: keyup_cb,
@@ -1389,7 +1392,9 @@ impl Playing {
                                      self.player_names[index]))
     }
 
-    fn on_player_turn(&mut self, active_player: usize) -> JsError {
+    fn on_player_turn(&mut self, active_player: usize, remaining: usize)
+        -> JsError
+    {
         let children = self.score_table.child_nodes();
         children
             .item((self.active_player + 1) as u32)
@@ -1399,6 +1404,7 @@ impl Playing {
             .remove_1("active")?;
 
         self.active_player = active_player;
+        self.pieces_remaining = remaining;
         children
             .item((self.active_player + 1) as u32)
             .unwrap()
@@ -1509,13 +1515,16 @@ fn on_message(msg: ServerMessage) -> JsError {
 
     match msg {
         UnknownRoom(name) => state.on_unknown_room(&name),
-        JoinedRoom{room_name, players, active_player, board, pieces} =>
-            state.on_joined_room(&room_name, &players, active_player, &board, &pieces),
+        JoinedRoom{room_name, players, active_player,
+                   board, pieces, remaining} =>
+            state.on_joined_room(&room_name, &players, active_player,
+                                 &board, &pieces, remaining),
         Chat{from, message} => state.on_chat(&from, &message),
         Information(message) => state.on_information(&message),
         NewPlayer(name) => state.on_new_player(&name),
         PlayerDisconnected(index) => state.on_player_disconnected(index),
-        PlayerTurn(active_player) => state.on_player_turn(active_player),
+        PlayerTurn(active_player, remaining) =>
+            state.on_player_turn(active_player, remaining),
         Played(pieces) => state.on_played(&pieces),
         MoveAccepted(dealt) => state.on_move_accepted(&dealt),
         MoveRejected => state.on_move_rejected(),

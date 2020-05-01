@@ -129,7 +129,8 @@ impl Room {
                 board: self.game.board.iter()
                     .map(|(k, v)| (*k, *v))
                     .collect(),
-                pieces})
+                pieces,
+                remaining: self.game.bag.len()})
             .expect("Could not send JoinedRoom");
 
         self.started = true;
@@ -146,7 +147,8 @@ impl Room {
             info!("[{}] Active player changed to {}", self.name,
                   self.players[self.active_player].name);
 
-            self.broadcast(ServerMessage::PlayerTurn(self.active_player));
+            self.broadcast(ServerMessage::PlayerTurn(self.active_player,
+                                                     self.game.bag.len()));
         }
     }
 
