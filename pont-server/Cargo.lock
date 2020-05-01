@@ -33,6 +33,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b41b7ea54a0c9d92199de89e20e58d49f02f8e699814ef3fdf266f6f748d15c7"
 
 [[package]]
+name = "bincode"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5753e2a71534719bf3f4e57006c3a4f0d2c672a4b676eec84161f763eca87dbf"
+dependencies = [
+ "byteorder",
+ "serde",
+]
+
+[[package]]
 name = "bitflags"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -571,15 +581,13 @@ dependencies = [
 name = "pont-server"
 version = "0.1.0"
 dependencies = [
+ "bincode",
  "env_logger",
  "futures",
  "lazy_static",
  "log",
  "pont-common",
  "rand",
- "serde",
- "serde_derive",
- "serde_json",
  "tokio",
  "tokio-tungstenite",
  "tungstenite",
@@ -702,12 +710,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ryu"
-version = "1.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "535622e6be132bccd223f4bb2b8ac8d53cda3c7a6394944d3b2b33fb974f9d76"
-
-[[package]]
 name = "schannel"
 version = "0.1.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -758,17 +760,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
-]
-
-[[package]]
-name = "serde_json"
-version = "1.0.51"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da07b57ee2623368351e9a0488bb0b261322a15a6e0ae53e243cbdc0f4208da9"
-dependencies = [
- "itoa",
- "ryu",
- "serde",
 ]
 
 [[package]]

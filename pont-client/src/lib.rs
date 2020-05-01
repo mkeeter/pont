@@ -5,6 +5,7 @@ use wasm_bindgen::convert::FromWasmAbi;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use web_sys::{
+    Blob,
     Element,
     Event,
     EventTarget,
@@ -903,10 +904,10 @@ impl Base {
     }
 
     fn send(&self, msg: ClientMessage) -> JsError {
-        let encoded = serde_json::to_string(&msg)
+        let encoded = bincode::serialize(&msg)
             .map_err(|e| JsValue::from_str(
                     &format!("Could not encode: {}", e)))?;
-        self.ws.send_with_str(&encoded)
+        self.ws.send_with_u8_array(&encoded[..])
     }
 }
 
@@ -1549,12 +1550,25 @@ pub fn main() -> JsError {
         HANDLE.lock().unwrap()
             .on_connected()
     }).forget();
-    set_event_cb(&ws, "message", move |e: MessageEvent| {
-        let msg = serde_json::from_str(&e.data().as_string().unwrap())
+    let on_decoded_cb = Closure::wrap(Box::new(move |e: JsValue| {
+        console_log!("{:?}", e);
+        let buf = js_sys::Uint8Array::new(&e);
+        let mut data = vec![0; buf.length() as usize];
+        buf.copy_to(&mut data[..]);
+        let msg = bincode::deserialize(&data[..])
             .map_err(|e| JsValue::from_str(
-                    &format!("Failed to deserialize: {}", e)))?;
+                    &format!("Failed to deserialize: {}", e)))
+            .expect("Could not decode message");
         on_message(msg)
+            .expect("Message decoding failed")
+    }) as Box<dyn FnMut(JsValue)>);
+    set_event_cb(&ws, "message", move |e: MessageEvent| {
+        let _ = e.data().dyn_into::<Blob>()?
+            .array_buffer()
+            .then(&on_decoded_cb);
+        Ok(())
     }).forget();
+
     set_event_cb(&ws, "close", move |_: Event| -> JsError {
         console_log!("Socket closed");
         Ok(())

@@ -98,9 +98,9 @@ impl Room {
         // the actual socket by another worker task.
         let (ws_tx, ws_rx) = unbounded();
         tokio::spawn(ws_rx
-            .map(|c| serde_json::to_string(&c)
-                .unwrap_or_else(|_| panic!("Could not encode {:?}", c)))
-            .map(WebsocketMessage::Text)
+            .map(|c| bincode::serialize(&c)
+                .expect(&format!("Could not encode {:?}", c)))
+            .map(WebsocketMessage::Binary)
             .map(Ok)
             .forward(ws));
 
@@ -296,8 +296,8 @@ async fn run_room(room_name: String,
                     let addr = p.addr;
                     tokio::spawn(outgoing.map(|m|
                         match m {
-                            Ok(WebsocketMessage::Text(t)) => Some(
-                                serde_json::from_str::<ClientMessage>(&t)
+                            Ok(WebsocketMessage::Binary(t)) => Some(
+                                bincode::deserialize::<ClientMessage>(&t)
                                     .expect("Could not decode message")),
                             _ => None,
                         })
@@ -353,8 +353,8 @@ async fn handle_connection(rooms: RoomList,
 
     // Clients are only allowed to send text messages at this stage.
     // If they do anything else, then just disconnect.
-    while let Some(Ok(WebsocketMessage::Text(t))) = ws_stream.next().await {
-        let msg = serde_json::from_str::<ClientMessage>(&t)
+    while let Some(Ok(WebsocketMessage::Binary(t))) = ws_stream.next().await {
+        let msg = bincode::deserialize::<ClientMessage>(&t)
             .expect("Could not decode message");
         match msg {
             ClientMessage::CreateRoom(name) => {
@@ -392,9 +392,9 @@ async fn handle_connection(rooms: RoomList,
 
                 // Otherwise, here's the error handler
                 let msg = ServerMessage::UnknownRoom(room);
-                let encoded = serde_json::to_string(&msg)
+                let encoded = bincode::serialize(&msg)
                     .expect("Could not encode message");
-                ws_stream.send(WebsocketMessage::Text(encoded)).await
+                ws_stream.send(WebsocketMessage::Binary(encoded)).await
                     .expect("Could not send message");
             }
             msg => {
