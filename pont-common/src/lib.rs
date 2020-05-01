@@ -184,22 +184,18 @@ impl Game {
         let mut out = HashSet::new();
         let explore = |f: &dyn Fn(i32) -> (i32, i32)| {
             let mut out = Vec::new();
-            for i in 0.. {
-                let c = f(i);
-                if let Some(piece) = board.get(&c) {
-                    out.push((*piece, c));
-                } else {
-                    break;
+            let mut run = |g: &dyn Fn(i32) -> i32| {
+                for i in 0.. {
+                    let c = f(g(i));
+                    if let Some(piece) = board.get(&c) {
+                        out.push((*piece, c));
+                    } else {
+                        break;
+                    }
                 }
-            }
-            for i in 1.. {
-                let c = f(-i);
-                if let Some(piece) = board.get(&c) {
-                    out.push((*piece, c));
-                } else {
-                    break;
-                }
-            }
+            };
+            run(&|i| i);
+            run(&|i| (-i - 1));
             out
         };
 
