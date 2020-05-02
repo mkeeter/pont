@@ -198,12 +198,12 @@ button.gameplay:hover {
 button#reject_button {
     left: 100%;
     top: 100%;
-    transform: translateY(-101%) translateX(-101%);
+    transform: translateY(-100%) translateX(-100%);
 }
 button#accept_button {
     left: 100%;
     top: 100%;
-    transform: translateY(-101%) translateX(-211%);
+    transform: translateY(-100%) translateX(-210%);
 }
 
 div#exchange {
@@ -212,9 +212,13 @@ div#exchange {
     background-color: var(--light0);
     height: 10%;
     width: 27.5%;
-    top: calc(100% + 1px);
-    left: 100%;
-    transform: translateY(-101%) translateX(-182%);
+    top: calc(100%);
+    left: 0%;
+    transform: translateY(-100%) translateX(178%);
+}
+div#svg.nyt div#exchange {
+    color: var(--dark4);
+    background-color: var(--light1);
 }
 
 div#exchange p {
@@ -249,16 +253,16 @@ div.background {
 }
 div#hand {
     left: 0px;
-    top: calc(100% + 1px);
-    transform: translateY(-101%);
-    width: calc(47.5% - 2px);
+    top: calc(100%);
+    transform: translateY(-100%);
+    width: calc(47.5%);
     height: 10%;
 }
 div#board {
     left: 0px;
     top: 0px;
-    width: calc(100% - 3px);
-    height: calc(87.5% - 2px);
+    width: calc(100%);
+    height: calc(87.5%);
 }
 
 div#svg {

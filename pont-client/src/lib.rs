@@ -268,7 +268,7 @@ impl Board {
         }).forget();
 
         let exchange_div = doc.create_element("div")?;
-        exchange_div.set_inner_html("<p>Exchange pieces</p>");
+        exchange_div.set_inner_html("<p>Drop here to<br>swap pieces</p>");
         exchange_div.set_id("exchange");
         svg_div.append_child(&exchange_div)?;
 
