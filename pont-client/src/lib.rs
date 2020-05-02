@@ -149,6 +149,7 @@ enum DragState {
 pub struct Board {
     doc: Document,
     svg: SvgGraphicsElement,
+    svg_div: Element,
 
     drag: DragState,
 
@@ -161,6 +162,7 @@ pub struct Board {
 
     accept_button: HtmlButtonElement,
     reject_button: HtmlButtonElement,
+    exchange_div: Element,
 
     pointer_down_cb: JsClosure<PointerEvent>,
     pointer_move_cb: JsClosure<PointerEvent>,
@@ -186,7 +188,6 @@ impl Board {
         svg.set_attribute("width", "100")?;
         svg.set_attribute("hight", "100")?;
         svg.set_attribute("viewBox", "0 0 200 200")?;
-
 
         // Add a clipping rectangle so that tiles don't drag outside
         // the main playing area
@@ -266,6 +267,11 @@ impl Board {
                 .on_reject_button(evt)
         }).forget();
 
+        let exchange_div = doc.create_element("div")?;
+        exchange_div.set_inner_html("<p>Exchange pieces</p>");
+        exchange_div.set_id("exchange");
+        svg_div.append_child(&exchange_div)?;
+
         svg_div.append_child(&svg)?;
 
         game_div.append_child(&svg_div)?;
@@ -298,7 +304,7 @@ impl Board {
         let out = Board {
             doc: doc.clone(),
             drag: DragState::Idle,
-            svg,
+            svg, svg_div,
             pan_group, pan_offset,
             grid: HashMap::new(),
             tentative: HashMap::new(),
@@ -311,6 +317,7 @@ impl Board {
             anim_cb,
             accept_button,
             reject_button,
+            exchange_div,
         };
 
         Ok(out)
@@ -318,9 +325,9 @@ impl Board {
 
     fn set_my_turn(&mut self, is_my_turn: bool) -> JsError {
         if is_my_turn {
-            self.svg.class_list().remove_1("nyt")
+            self.svg_div.class_list().remove_1("nyt")
         } else {
-            self.svg.class_list().add_1("nyt")
+            self.svg_div.class_list().add_1("nyt")
         }
     }
 

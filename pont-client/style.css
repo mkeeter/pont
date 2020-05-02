@@ -133,7 +133,7 @@ g.placed rect.tile {
     stroke-width: 0.5;
     stroke: var(--dark4);
 }
-svg#game.nyt g.piece rect.tile {
+div#svg.nyt g.piece rect.tile {
     fill: var(--dark3);
 }
 g.piece rect.tile {
@@ -145,7 +145,7 @@ g.invalid rect.tile {
     fill: var(--dark-red);
     stroke: var(--red);
 }
-svg#game.nyt g.piece {
+div#svg.nyt g.piece {
     pointer-events: none;
 }
 g.piece {
@@ -204,6 +204,25 @@ button#accept_button {
     left: 100%;
     top: 100%;
     transform: translateY(-101%) translateX(-211%);
+}
+
+div#exchange {
+    position: absolute;
+    border:1px solid var(--dark4);
+    background-color: var(--light0);
+    height: 10%;
+    width: 27.5%;
+    top: calc(100% + 1px);
+    left: 100%;
+    transform: translateY(-101%) translateX(-182%);
+}
+
+div#exchange p {
+    text-align: center;
+    margin: 0;
+    position: relative;
+    top: 50%;
+    transform: translateY(-50%);
 }
 
 /*  This is only used for layout things */
