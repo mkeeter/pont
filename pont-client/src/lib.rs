@@ -87,6 +87,7 @@ macro_rules! transitions {
 ////////////////////////////////////////////////////////////////////////////////
 
 type Pos = (f32, f32);
+#[derive(PartialEq)]
 struct Dragging {
     target: Element,
     shadow: Element,
@@ -95,6 +96,7 @@ struct Dragging {
     hand_index: usize,
 }
 
+#[derive(PartialEq)]
 struct TileAnimation {
     target: Element,
     start: Pos,
@@ -118,23 +120,24 @@ impl TileAnimation {
     }
 }
 
+#[derive(PartialEq)]
 struct DropToGrid {
     anim: TileAnimation,
     shadow: Element,
 }
 
-enum DropTarget {
-    DropToGrid(i32, i32),
-    ReturnToGrid(i32, i32),
-    ReturnToHand,
-}
-
+#[derive(PartialEq)]
 struct DropManyToGrid(Vec<TileAnimation>);
+#[derive(PartialEq)]
 struct ReturnToHand(TileAnimation);
+#[derive(PartialEq)]
 struct DragPan(Pos);
+#[derive(PartialEq)]
 struct ReturnAllToHand(Vec<TileAnimation>);
+#[derive(PartialEq)]
 struct ConsolidateHand(Vec<TileAnimation>);
 
+#[derive(PartialEq)]
 enum DragState {
     Idle,
     Dragging(Dragging),
@@ -144,6 +147,13 @@ enum DragState {
     DragPan(DragPan),
     ReturnAllToHand(ReturnAllToHand),
     ConsolidateHand(ConsolidateHand),
+}
+
+enum DropTarget {
+    DropToGrid(i32, i32),
+    ReturnToGrid(i32, i32),
+    Exchange,
+    ReturnToHand,
 }
 
 pub struct Board {
@@ -158,6 +168,7 @@ pub struct Board {
 
     grid: HashMap<(i32, i32), Piece>,
     tentative: HashMap<(i32, i32), usize>,
+    exchange_list: Vec<usize>,
     hand: Vec<(Piece, Element)>,
 
     accept_button: HtmlButtonElement,
@@ -308,6 +319,7 @@ impl Board {
             pan_group, pan_offset,
             grid: HashMap::new(),
             tentative: HashMap::new(),
+            exchange_list: Vec::new(),
             hand: Vec::new(),
             pointer_down_cb,
             pointer_up_cb,
@@ -325,7 +337,8 @@ impl Board {
 
     fn set_my_turn(&mut self, is_my_turn: bool) -> JsError {
         if is_my_turn {
-            self.svg_div.class_list().remove_1("nyt")
+            self.svg_div.class_list().remove_1("nyt");
+            self.exchange_div.class_list().remove_1("disabled")
         } else {
             self.svg_div.class_list().add_1("nyt")
         }
@@ -457,6 +470,11 @@ impl Board {
             target.set_attribute("transform",
                                    &format!("translate({} {})", tx, ty))?;
             let hand_index = self.tentative.remove(&(x, y)).unwrap();
+            if self.tentative.is_empty() {
+                self.exchange_div.class_list().remove_1("disabled")?;
+                self.accept_button.set_disabled(true);
+                self.reject_button.set_disabled(true);
+            }
             self.mark_invalid()?;
             (hand_index, Some((x, y)))
         };
@@ -497,12 +515,22 @@ impl Board {
                     **c = 190.0;
                 }
             }
+
+            // If we've started exchanging tiles, then prevent folks from
+            // dragging onto the grid.
+            if !self.exchange_list.is_empty() && y < 175.0 {
+                y = 175.0;
+            }
             let pos = (x, y);
 
             // If the tile is off the bottom of the grid, then we propose
             // to return it to the hand.
             if y >= 165.0 {
-                return Ok((pos, DropTarget::ReturnToHand))
+                if self.tentative.is_empty() && x >= 95.0 && x <= 140.0 {
+                    return Ok((pos, DropTarget::Exchange));
+                } else {
+                    return Ok((pos, DropTarget::ReturnToHand));
+                }
             }
 
             // Otherwise, we shift the tile's coordinates by the panning
@@ -614,10 +642,25 @@ impl Board {
                         },
                         shadow: d.shadow.clone(),
                     })
-                }
+                },
+                DropTarget::Exchange => {
+                    self.exchange_list.push(d.hand_index);
+                    match self.exchange_list.len() {
+                        1 => self.exchange_div.set_inner_html(
+                            "<p>Swap 1 piece</p>"),
+                        x => self.exchange_div.set_inner_html(&format!(
+                            "<p>Swap {} pieces</p>", x)),
+                    };
+                    d.target.set_attribute("visibility", "hidden")?;
+                    self.accept_button.set_disabled(false);
+                    self.reject_button.set_disabled(false);
+                    DragState::Idle
+                },
             };
             self.mark_invalid()?;
-            self.request_animation_frame()?;
+            if self.drag != DragState::Idle {
+                self.request_animation_frame()?;
+            }
         }
         Ok(())
     }
@@ -632,6 +675,7 @@ impl Board {
                     self.drag = DragState::Idle;
                     self.accept_button.set_disabled(!self.mark_invalid()?);
                     self.reject_button.set_disabled(false);
+                    self.exchange_div.class_list().add_1("disabled")?;
                 }
             },
             DragState::ReturnToHand(d) => {
@@ -639,11 +683,11 @@ impl Board {
                     self.request_animation_frame()?;
                 } else {
                     self.drag = DragState::Idle;
-                    if self.tentative.is_empty() {
+                    if !self.tentative.is_empty() {
+                        self.accept_button.set_disabled(!self.mark_invalid()?);
+                    } else if self.exchange_list.is_empty() {
                         self.accept_button.set_disabled(true);
                         self.reject_button.set_disabled(true);
-                    } else {
-                        self.accept_button.set_disabled(!self.mark_invalid()?);
                     }
                 }
             },
@@ -658,6 +702,7 @@ impl Board {
                     self.drag = DragState::Idle;
                     self.accept_button.set_disabled(true);
                     self.reject_button.set_disabled(true);
+                    self.exchange_div.class_list().remove_1("disabled")?;
                 }
             },
             DragState::ConsolidateHand(ConsolidateHand(d)) |
@@ -803,29 +848,56 @@ impl Board {
             _ => return Ok(()),
         }
 
-        let mut tiles = HashMap::new();
-        std::mem::swap(&mut self.tentative, &mut tiles);
-        for (_, i) in &tiles {
-            let t = &self.hand[*i].1;
-            self.pan_group.remove_child(t)?;
-            t.class_list().remove_1("invalid")?;
-            let (dx, dy) = Self::get_transform(t);
-            t.set_attribute(
-                "transform", &format!("translate({} {})",
-                        dx - self.pan_offset.0,
-                        dy - self.pan_offset.1))?;
-            self.svg.append_child(t)?;
+        if !self.tentative.is_empty() {
+            let mut tiles = HashMap::new();
+            std::mem::swap(&mut self.tentative, &mut tiles);
+            // Take every active tile and free them from the tile grid,
+            // adjusting their transform so they don't move at all
+            for (_, i) in &tiles {
+                let t = &self.hand[*i].1;
+                self.pan_group.remove_child(t)?;
+                t.class_list().remove_1("invalid")?;
+                let (dx, dy) = Self::get_transform(t);
+                t.set_attribute(
+                    "transform", &format!("translate({} {})",
+                            dx - self.pan_offset.0,
+                            dy - self.pan_offset.1))?;
+                self.svg.append_child(t)?;
+            }
+            self.drag = DragState::ReturnAllToHand(ReturnAllToHand(
+                tiles.drain().map(|((tx, ty), i)|
+                    TileAnimation {
+                        target: self.hand[i].1.clone(),
+                        start: (tx as f32 * 10.0 + self.pan_offset.0,
+                                ty as f32 * 10.0 + self.pan_offset.1),
+                        end: ((i * 15 + 5) as f32, 185.0),
+                        t0: evt.time_stamp()
+                    }).collect()));
+        } else if !self.exchange_list.is_empty() {
+            let mut ex = Vec::new();
+            std::mem::swap(&mut ex, &mut self.exchange_list);
+            self.drag = DragState::ReturnAllToHand(ReturnAllToHand(
+                ex.drain(0..)
+                    .map(|i| {
+                        let target = self.hand[i].1.clone();
+                        target.set_attribute("visibility", "visible")?;
+                        let x = (i * 15 + 5) as f32;
+                        Ok(TileAnimation {
+                            target,
+                            start: (x, 200.0),
+                            end:   (x, 185.0),
+                            t0: evt.time_stamp()
+                        })
+                    })
+                    .collect::<JsResult<Vec<TileAnimation>>>()?));
+            self.exchange_div.set_inner_html(
+                "<p>Drop here to<br>swap pieces</p>");
+            self.exchange_div.class_list().remove_1("disabled")?;
         }
-        self.drag = DragState::ReturnAllToHand(ReturnAllToHand(
-            tiles.drain().map(|((tx, ty), i)|
-                TileAnimation {
-                    target: self.hand[i].1.clone(),
-                    start: (tx as f32 * 10.0 + self.pan_offset.0,
-                            ty as f32 * 10.0 + self.pan_offset.1),
-                    end: ((i * 15 + 5) as f32, 185.0),
-                    t0: evt.time_stamp()
-                }).collect()));
-        self.request_animation_frame()?;
+
+        if self.drag != DragState::Idle {
+            self.request_animation_frame()?;
+        }
         Ok(())
     }
 
@@ -1053,6 +1125,8 @@ impl Connecting {
     fn on_connected(self) -> JsResult<CreateOrJoin> {
         // Remove the "Connecting..." message
         self.base.clear_main_div()?;
+
+        self.base.send(ClientMessage::CreateRoom("Matt".to_string()));
 
         // Return the new state
         CreateOrJoin::new(self.base)

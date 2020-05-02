@@ -216,6 +216,10 @@ div#exchange {
     left: 0%;
     transform: translateY(-100%) translateX(178%);
 }
+div#exchange.disabled {
+    color: var(--dark4);
+    background-color: var(--light1);
+}
 div#svg.nyt div#exchange {
     color: var(--dark4);
     background-color: var(--light1);
