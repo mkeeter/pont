@@ -2,7 +2,7 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::convert::FromWasmAbi;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use web_sys::{
     Blob,
@@ -154,6 +154,11 @@ enum DropTarget {
     ReturnToGrid(i32, i32),
     Exchange,
     ReturnToHand,
+}
+
+enum Move {
+    Place(Vec<(Piece, i32, i32)>),
+    Swap(Vec<Piece>),
 }
 
 pub struct Board {
@@ -337,7 +342,7 @@ impl Board {
 
     fn set_my_turn(&mut self, is_my_turn: bool) -> JsError {
         if is_my_turn {
-            self.svg_div.class_list().remove_1("nyt");
+            self.svg_div.class_list().remove_1("nyt")?;
             self.exchange_div.class_list().remove_1("disabled")
         } else {
             self.svg_div.class_list().add_1("nyt")
@@ -902,12 +907,12 @@ impl Board {
     }
 
     /*  Attempts to make the given move.
-     *  If the move is valid (TODO), returns the indexes of placed pieces
+     *  If the move is valid, returns the indexes of placed pieces
      *  (as hand indexes), which can be passed up to the server. */
-    fn make_move(&mut self, _evt: Event) -> JsResult<Vec<(Piece, i32, i32)>> {
+    fn make_move(&mut self, _evt: Event) -> JsResult<Move> {
         match self.drag {
             DragState::Idle => (),
-            _ => return Ok(Vec::new()),
+            _ => return Ok(Move::Place(Vec::new())),
         }
 
         // Disable everything until we hear back from the server.
@@ -916,17 +921,30 @@ impl Board {
         // but we'll let the server tell us that.
         self.accept_button.set_disabled(true);
         self.reject_button.set_disabled(true);
+        self.exchange_div.set_inner_html("<p>Drop here to<br>swap pieces</p>");
+
         self.set_my_turn(false)?;
 
-        Ok(self.tentative.iter()
-            .map(|((x, y), i)| (self.hand[*i].0.clone(), *x, *y))
-            .collect())
+        if !self.tentative.is_empty() {
+            Ok(Move::Place(self.tentative.iter()
+                .map(|((x, y), i)| (self.hand[*i].0.clone(), *x, *y))
+                .collect()))
+        } else {
+            assert!(!self.exchange_list.is_empty());
+            Ok(Move::Swap(self.exchange_list.iter()
+                .map(|i| self.hand[*i].0.clone())
+                .collect()))
+        }
     }
 
     fn on_move_accepted(&mut self, dealt: &[Piece]) -> JsError {
         let mut placed = HashMap::new();
         for ((x, y), i) in self.tentative.drain() {
             placed.insert(i, (x, y));
+        }
+        let mut exchanged = HashSet::new();
+        for i in self.exchange_list.drain(0..) {
+            exchanged.insert(i);
         }
 
         // We're going to shuffle pieces around now!
@@ -942,6 +960,8 @@ impl Board {
                     "pointerdown",
                     self.pointer_down_cb.as_ref().unchecked_ref())?;
                 self.grid.insert((x, y), piece);
+            } else if exchanged.contains(&i) {
+                self.svg.remove_child(&element)?;
             } else {
                 if self.hand.len() != i {
                     anims.push(TileAnimation {
@@ -1075,9 +1095,10 @@ impl State {
             on_player_disconnected(index: usize),
             on_player_turn(active_player: usize, remaining: usize),
             on_played(pieces: &[(Piece, i32, i32)]),
+            on_swapped(count: usize),
             on_move_accepted(dealt: &[Piece]),
             on_move_rejected(),
-            on_player_score(index: usize, delta: u32, total: u32),
+            on_player_score(delta: u32, total: u32),
         ],
         CreateOrJoin => [
             on_room_name_invalid(),
@@ -1125,8 +1146,6 @@ impl Connecting {
     fn on_connected(self) -> JsResult<CreateOrJoin> {
         // Remove the "Connecting..." message
         self.base.clear_main_div()?;
-
-        self.base.send(ClientMessage::CreateRoom("Matt".to_string()));
 
         // Return the new state
         CreateOrJoin::new(self.base)
@@ -1537,9 +1556,10 @@ impl Playing {
     }
 
     fn on_accept_button(&mut self, evt: Event) -> JsError {
-        let m = self.board.make_move(evt)?;
-        self.base.send(ClientMessage::Play(m))?;
-        Ok(())
+        match self.board.make_move(evt)? {
+            Move::Place(m) => self.base.send(ClientMessage::Play(m)),
+            Move::Swap(m) => self.base.send(ClientMessage::Swap(m)),
+        }
     }
 
     fn on_played(&mut self, pieces: &[(Piece, i32, i32)]) -> JsError {
@@ -1558,6 +1578,20 @@ impl Playing {
         Ok(())
     }
 
+    fn active_player_name(&self) -> &str {
+        if self.active_player == self.player_index {
+            "You"
+        } else {
+            &self.player_names[self.active_player]
+        }
+    }
+
+    fn on_swapped(&mut self, count: usize) -> JsError {
+        self.on_information(&format!("{} swapped {} piece{}",
+            self.active_player_name(), count,
+            if count > 1 { "s" } else { "" }))
+    }
+
     fn on_move_accepted(&mut self, dealt: &[Piece]) -> JsError {
         self.board.on_move_accepted(dealt)
     }
@@ -1566,22 +1600,20 @@ impl Playing {
         Ok(())
     }
 
-    fn on_player_score(&mut self, index: usize, delta: u32, total: u32)
+    fn on_player_score(&mut self, delta: u32, total: u32)
         -> JsError
     {
         self.score_table.child_nodes()
-            .item(index as u32 + 1)
+            .item(self.active_player as u32 + 1)
             .unwrap()
             .child_nodes()
             .item(2)
             .unwrap()
             .set_text_content(Some(&total.to_string()));
-        if index == self.player_index {
-            self.on_information(&format!("You scored {} points", delta))
-        } else {
-            self.on_information(&format!("{} scored {} points",
-                                         self.player_names[index], delta))
-        }
+        self.on_information(&format!("{} scored {} point{}",
+            self.active_player_name(),
+            delta,
+            if delta > 1 { "s" } else { "" }))
     }
 }
 
@@ -1607,10 +1639,11 @@ fn on_message(msg: ServerMessage) -> JsError {
         PlayerTurn(active_player, remaining) =>
             state.on_player_turn(active_player, remaining),
         Played(pieces) => state.on_played(&pieces),
+        Swapped(count) => state.on_swapped(count),
         MoveAccepted(dealt) => state.on_move_accepted(&dealt),
         MoveRejected => state.on_move_rejected(),
-        PlayerScore{index, delta, total} =>
-            state.on_player_score(index, delta, total),
+        PlayerScore{delta, total} =>
+            state.on_player_score(delta, total),
     }
 }
 

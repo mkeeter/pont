@@ -47,6 +47,34 @@ struct Player {
     ws: Option<UnboundedSender<ServerMessage>>
 }
 
+impl Player {
+    // Tries to remove a set of pieces from the player's hand
+    // On failure, returns false.
+    fn try_remove(&mut self, pieces: &[Piece]) -> bool {
+        let mut count = HashMap::new();
+        for piece in pieces {
+            *count.entry(piece).or_insert(0) += 1;
+        }
+
+        for (piece, n) in count.iter() {
+            if let Some(m) = self.hand.get(&piece) {
+                if *m < *n {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+
+        for (piece, n) in count.iter() {
+            if let Some(m) = self.hand.get_mut(&piece) {
+                *m -= n;
+            }
+        }
+        true
+    }
+}
+
 struct Room {
     name: String,
     started: bool,
@@ -168,18 +196,9 @@ impl Room {
         }
     }
 
-    fn subtract_from_hand(&mut self, piece: Piece) -> bool {
-        let p = &mut self.players[self.active_player];
-        if let Some(count) = p.hand.get_mut(&piece) {
-            if *count > 0 {
-                *count -= 1;
-                return true;
-            }
-        }
-        false
-    }
-
     fn on_play(&mut self, pieces: &[(Piece, i32, i32)]) {
+        let player = &mut self.players[self.active_player];
+
         let mut board = self.game.board.clone();
         for (piece, x, y) in pieces.iter() {
             board.insert((*x, *y), *piece);
@@ -188,50 +207,67 @@ impl Room {
            !Game::is_linear(&pieces.iter().map(|p| (p.1, p.2)).collect())
         {
             warn!("[{}] Player {} tried to make an illegal move",
-                  self.name, self.players[self.active_player].name);
+                  self.name, player.name);
             self.send(self.active_player, ServerMessage::MoveRejected);
             return;
         }
 
-        for p in pieces {
-            if !self.subtract_from_hand(p.0) {
-                warn!("[{}] Player {} tried to play an unowned piece {:?}",
-                      self.name, self.players[self.active_player].name, p);
+        {   // Remove the pieces from the player's hand
+            let pieces: Vec<Piece> = pieces.iter().map(|p| p.0).collect();
+            if !player.try_remove(&pieces) {
+                warn!("[{}] Player {} tried to play an unowned piece",
+                      self.name, player.name);
                 self.send(self.active_player, ServerMessage::MoveRejected);
                 return;
             }
         }
 
-        if let Some(score) = self.game.play(pieces) {
+        if let Some(delta) = self.game.play(pieces) {
             // Broadcast the new score to all players
-            self.players[self.active_player].score += score;
-            self.broadcast(ServerMessage::PlayerScore {
-                index: self.active_player,
-                delta: score,
-                total: self.players[self.active_player].score,
-            });
-
+            player.score += delta;
             let mut deal = Vec::new();
-
-            let hand_size: usize = self.players[self.active_player].hand
-                .values().sum();
-            for (piece, count) in self.game.deal(6 - hand_size) {
-                *self.players[self.active_player].hand.entry(piece)
+            for (piece, count) in self.game.deal(pieces.len()) {
+                *player.hand.entry(piece)
                     .or_insert(0) += count;
                 for _i in 0..count {
                     deal.push(piece);
                 }
             }
-            info!("{:?}", self.players[self.active_player].hand);
+            info!("{:?}", player.hand);
+            let total = player.score; // Release the borrow of player
+            self.broadcast(ServerMessage::PlayerScore { delta, total, });
             self.send(self.active_player, ServerMessage::MoveAccepted(deal));
 
             // Broadcast the play to other players
             self.broadcast_except(self.active_player,
                 ServerMessage::Played(pieces.to_vec()));
+
         } else {
             warn!("[{}] Player {} snuck an illegal move past the first filters",
-                  self.name, self.players[self.active_player].name);
+                  self.name, player.name);
             self.send(self.active_player, ServerMessage::MoveRejected);
+        }
+    }
+
+    fn on_swap(&mut self, pieces: &[Piece]) {
+        let player = &mut self.players[self.active_player];
+        if !player.try_remove(pieces) {
+            warn!("[{}] Player {} tried to play an unowned piece",
+                  self.name, player.name);
+            self.send(self.active_player, ServerMessage::MoveRejected);
+            return;
+        } else if let Some(deal) = self.game.swap(pieces) {
+            for piece in deal.iter() {
+                *player.hand.entry(*piece).or_insert(0) += 1;
+            }
+            self.send(self.active_player, ServerMessage::MoveAccepted(deal));
+
+            // Broadcast the swap to other players
+            self.broadcast(ServerMessage::Swapped(pieces.len()));
+        } else {
+            warn!("[{}] Player {} couldn't be dealt {} pieces",
+                  self.name, player.name,
+                  pieces.len());
         }
     }
 
@@ -260,16 +296,19 @@ impl Room {
                 } else {
                     warn!("[{}] Invalid player {}", self.name, addr);
                 }
-            }
-            /*
+            },
             ClientMessage::Swap(pieces) => {
-                if let Some(p) = self.players.get(&addr) {
-                    trace!("[{}] {} swapped {:?}", self.name, p.name, pieces);
+                if let Some(i) = self.connections.get(&addr).copied() {
+                    if i == self.active_player {
+                        self.on_swap(&pieces);
+                        self.next_player();
+                    } else {
+                        warn!("[{}] Player {} out of turn", self.name, addr);
+                    }
                 } else {
-                    trace!("[{}] Invalid player {}", self.name, addr);
+                    warn!("[{}] Invalid player {}", self.name, addr);
                 }
-            }
-            */
+            },
         }
     }
 }

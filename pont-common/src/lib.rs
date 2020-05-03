@@ -10,10 +10,7 @@ pub enum ClientMessage {
     JoinRoom(String, String),
     Chat(String),
     Play(Vec<(Piece, i32, i32)>),
-
-    /*
     Swap(Vec<Piece>),
-    */
 
     Disconnected,
 }
@@ -38,26 +35,13 @@ pub enum ServerMessage {
     PlayerDisconnected(usize),
     PlayerTurn(usize, usize),
     Played(Vec<(Piece, i32, i32)>),
+    Swapped(usize),
     MoveAccepted(Vec<Piece>),
     MoveRejected,
     PlayerScore {
-        index: usize,
         delta: u32,
         total: u32,
     },
-
-
-    /*
-    Players {
-        players: Vec<(String, usize)>,
-        turn: usize,
-    },
-    YourTurn,
-    NotYourTurn,
-    Board(Board), // Used to send the initial board
-    Draw(Vec<Piece>),
-    InvalidMove(String),
-    */
 }
 
 #[derive(Copy, Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
@@ -130,14 +114,14 @@ impl Game {
         out
     }
 
-    pub fn exchange(&mut self, pieces: Vec<Piece>) -> Option<Vec<Piece>> {
+    pub fn swap(&mut self, pieces: &[Piece]) -> Option<Vec<Piece>> {
         if pieces.len() <= self.bag.len() {
             let mut out = Vec::new();
             for _ in 0..pieces.len() {
                 out.push(self.bag.pop().unwrap());
             }
-            for p in pieces.into_iter() {
-                self.bag.push(p);
+            for p in pieces.iter() {
+                self.bag.push(*p);
             }
             self.bag.shuffle(&mut thread_rng());
             Some(out)
