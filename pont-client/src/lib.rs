@@ -174,6 +174,7 @@ pub struct Board {
     grid: HashMap<(i32, i32), Piece>,
     tentative: HashMap<(i32, i32), usize>,
     exchange_list: Vec<usize>,
+    pieces_remaining: usize,
     hand: Vec<(Piece, Element)>,
 
     accept_button: HtmlButtonElement,
@@ -191,7 +192,9 @@ pub struct Board {
 }
 
 impl Board {
-    fn new(doc: &Document, game_div: &HtmlElement) -> JsResult<Board> {
+    fn new(doc: &Document, game_div: &HtmlElement, pieces_remaining: usize)
+        -> JsResult<Board>
+    {
         let dummy = doc.create_svg_element("svg")?
             .dyn_into::<SvgGraphicsElement>()?;
         dummy.set_attribute("viewBox", "0 0 200 200")?;
@@ -335,6 +338,7 @@ impl Board {
             accept_button,
             reject_button,
             exchange_div,
+            pieces_remaining,
         };
 
         Ok(out)
@@ -342,8 +346,12 @@ impl Board {
 
     fn set_my_turn(&mut self, is_my_turn: bool) -> JsError {
         if is_my_turn {
-            self.svg_div.class_list().remove_1("nyt")?;
-            self.exchange_div.class_list().remove_1("disabled")
+            if self.pieces_remaining > 1 {
+                self.exchange_div.class_list().remove_1("disabled")?;
+            } else {
+                self.exchange_div.set_inner_html("<p>No pieces<br>left in bag</p>");
+            }
+            self.svg_div.class_list().remove_1("nyt")
         } else {
             self.svg_div.class_list().add_1("nyt")
         }
@@ -531,7 +539,9 @@ impl Board {
             // If the tile is off the bottom of the grid, then we propose
             // to return it to the hand.
             if y >= 165.0 {
-                if self.tentative.is_empty() && x >= 95.0 && x <= 140.0 {
+                if self.tentative.is_empty() && x >= 95.0 && x <= 140.0 &&
+                   self.exchange_list.len() < self.pieces_remaining
+                {
                     return Ok((pos, DropTarget::Exchange));
                 } else {
                     return Ok((pos, DropTarget::ReturnToHand));
@@ -650,12 +660,12 @@ impl Board {
                 },
                 DropTarget::Exchange => {
                     self.exchange_list.push(d.hand_index);
-                    match self.exchange_list.len() {
-                        1 => self.exchange_div.set_inner_html(
-                            "<p>Swap 1 piece</p>"),
-                        x => self.exchange_div.set_inner_html(&format!(
-                            "<p>Swap {} pieces</p>", x)),
-                    };
+                    let n = self.exchange_list.len();
+                    self.exchange_div.set_inner_html(
+                        &format!("<p>Swap {} piece{}{}</p>",
+                                 n, if n > 1 { "s" } else { " " },
+                                 if n == self.pieces_remaining { " (max)" }
+                                 else { "" }));
                     d.target.set_attribute("visibility", "hidden")?;
                     self.accept_button.set_disabled(false);
                     self.reject_button.set_disabled(false);
@@ -707,7 +717,9 @@ impl Board {
                     self.drag = DragState::Idle;
                     self.accept_button.set_disabled(true);
                     self.reject_button.set_disabled(true);
-                    self.exchange_div.class_list().remove_1("disabled")?;
+                    if self.pieces_remaining > 0 {
+                        self.exchange_div.class_list().remove_1("disabled")?;
+                    }
                 }
             },
             DragState::ConsolidateHand(ConsolidateHand(d)) |
@@ -895,9 +907,11 @@ impl Board {
                         })
                     })
                     .collect::<JsResult<Vec<TileAnimation>>>()?));
-            self.exchange_div.set_inner_html(
-                "<p>Drop here to<br>swap pieces</p>");
-            self.exchange_div.class_list().remove_1("disabled")?;
+            if self.pieces_remaining > 0 {
+                self.exchange_div.set_inner_html(
+                    "<p>Drop here to<br>swap pieces</p>");
+                self.exchange_div.class_list().remove_1("disabled")?;
+            }
         }
 
         if self.drag != DragState::Idle {
@@ -921,7 +935,10 @@ impl Board {
         // but we'll let the server tell us that.
         self.accept_button.set_disabled(true);
         self.reject_button.set_disabled(true);
-        self.exchange_div.set_inner_html("<p>Drop here to<br>swap pieces</p>");
+        if self.pieces_remaining > 0 {
+            self.exchange_div.set_inner_html(
+                "<p>Drop here to<br>swap pieces</p>");
+        }
 
         self.set_my_turn(false)?;
 
@@ -1045,7 +1062,6 @@ struct Playing {
     score_table: HtmlElement,
     player_index: usize,
     active_player: usize,
-    pieces_remaining: usize,
     player_names: Vec<String>,
 
     board: Board,
@@ -1308,7 +1324,7 @@ impl Playing {
         game_div.set_id("game");
         base.main_div.append_child(&game_div)?;
 
-        let board = Board::new(&base.doc, &game_div)?;
+        let board = Board::new(&base.doc, &game_div, remaining)?;
 
         let score_col = base.doc.create_element("div")?
             .dyn_into::<HtmlElement>()?;
@@ -1378,7 +1394,6 @@ impl Playing {
             score_table,
             player_index,
             active_player,
-            pieces_remaining: remaining,
             player_names: Vec::new(),
 
             _keyup_cb: keyup_cb,
@@ -1504,7 +1519,7 @@ impl Playing {
             .remove_1("active")?;
 
         self.active_player = active_player;
-        self.pieces_remaining = remaining;
+        self.board.pieces_remaining = remaining;
         children
             .item((self.active_player + 1) as u32)
             .unwrap()
