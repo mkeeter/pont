@@ -73,11 +73,16 @@ impl Player {
         }
         true
     }
+
+    fn hand_is_empty(&self) -> bool {
+        self.hand.values().all(|i| *i == 0)
+    }
 }
 
 struct Room {
     name: String,
     started: bool,
+    ended: bool,
     connections: HashMap<SocketAddr, usize>,
     players: Vec<Player>,
     active_player: usize,
@@ -222,9 +227,8 @@ impl Room {
             }
         }
 
-        if let Some(delta) = self.game.play(pieces) {
+        if let Some(mut delta) = self.game.play(pieces) {
             // Broadcast the new score to all players
-            player.score += delta;
             let mut deal = Vec::new();
             for (piece, count) in self.game.deal(pieces.len()) {
                 *player.hand.entry(piece)
@@ -233,7 +237,13 @@ impl Room {
                     deal.push(piece);
                 }
             }
-            info!("{:?}", player.hand);
+            // Check whether the game is over!
+            let over = player.hand_is_empty() && self.game.bag.is_empty();
+            if over {
+                delta += 6;
+            }
+            player.score += delta;
+
             let total = player.score; // Release the borrow of player
             self.broadcast(ServerMessage::PlayerScore { delta, total, });
             self.send(self.active_player, ServerMessage::MoveAccepted(deal));
@@ -242,6 +252,13 @@ impl Room {
             self.broadcast_except(self.active_player,
                 ServerMessage::Played(pieces.to_vec()));
 
+            if over {
+                let winner = self.players.iter()
+                    .enumerate()
+                    .max_by_key(|(_i, p)| p.score).unwrap().0;
+                self.broadcast(ServerMessage::ItsOver(winner));
+                self.ended = true;
+            }
         } else {
             warn!("[{}] Player {} snuck an illegal move past the first filters",
                   self.name, player.name);
@@ -286,10 +303,14 @@ impl Room {
                 warn!("[{}] Invalid client message {:?}", self.name, msg);
             },
             ClientMessage::Play(pieces) => {
-                if let Some(i) = self.connections.get(&addr).copied() {
+                if self.ended {
+                    warn!("[{}] Got play after move ended", self.name);
+                } else if let Some(i) = self.connections.get(&addr).copied() {
                     if i == self.active_player {
                         self.on_play(&pieces);
-                        self.next_player();
+                        if !self.ended {
+                            self.next_player();
+                        }
                     } else {
                         warn!("[{}] Player {} out of turn", self.name, addr);
                     }
@@ -298,7 +319,9 @@ impl Room {
                 }
             },
             ClientMessage::Swap(pieces) => {
-                if let Some(i) = self.connections.get(&addr).copied() {
+                if self.ended {
+                    warn!("[{}] Got play after move ended", self.name);
+                } else if let Some(i) = self.connections.get(&addr).copied() {
                     if i == self.active_player {
                         self.on_swap(&pieces);
                         self.next_player();
@@ -324,6 +347,7 @@ async fn run_room(room_name: String,
     let mut room = Room {
         name: room_name,
         started: false,
+        ended: false,
         connections: HashMap::new(),
         players: Vec::new(),
         active_player: 0,

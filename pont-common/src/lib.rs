@@ -42,6 +42,7 @@ pub enum ServerMessage {
         delta: u32,
         total: u32,
     },
+    ItsOver(usize),
 }
 
 #[derive(Copy, Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
@@ -74,16 +75,41 @@ pub struct Game {
 
 impl Game {
     pub fn play(&mut self, ps: &[(Piece, i32, i32)]) -> Option<u32> {
-        let mut score = 0;
         for (p, x, y) in ps {
             if self.board.contains_key(&(*x, *y)) {
                 return None;
             } else {
                 self.board.insert((*x, *y), *p);
-                score += 1;
             }
         }
-        Some(score)
+        let mut score = 0;
+        let mut seen_rows = HashSet::new();
+        let mut seen_cols = HashSet::new();
+        let f = |v: Vec<(Piece, (i32, i32))>| -> Vec<(i32, i32)> {
+            let mut v = v.into_iter()
+                .map(|(_p, (x, y))| (x, y))
+                .collect::<Vec<_>>();
+            v.sort();
+            v
+        };
+        for (_piece, x, y) in ps {
+            let row = f(Self::explore_from(&self.board, |i| (*x + i, *y)));
+            if row.len() > 1 && seen_rows.insert(row[0]) {
+                score += row.len();
+            }
+            if row.len() == 6 {
+                score += 6;
+            }
+
+            let col = f(Self::explore_from(&self.board, |i| (*x, *y + i)));
+            if col.len() > 1 && seen_cols.insert(col[0]) {
+                score += col.len();
+            }
+            if col.len() == 6 {
+                score += 6;
+            }
+        }
+        Some(score as u32)
     }
 
     pub fn new() -> Game {
@@ -159,6 +185,26 @@ impl Game {
         return x_positions.len() == 1 || y_positions.len() == 1;
     }
 
+    fn explore_from<T>(board: &HashMap<(i32, i32), Piece>, f: T)
+        -> Vec<(Piece, (i32, i32))>
+        where T: Fn(i32) -> (i32, i32)
+    {
+            let mut out = Vec::new();
+            let mut run = |g: &dyn Fn(i32) -> i32| {
+                for i in 0.. {
+                    let c = f(g(i));
+                    if let Some(piece) = board.get(&c) {
+                        out.push((*piece, c));
+                    } else {
+                        break;
+                    }
+                }
+            };
+            run(&|i| i);
+            run(&|i| (-i - 1));
+            out
+    }
+
     // Checks whether the given board is valid,
     // returning a vec of invalid piece locations
     pub fn invalid(board: &HashMap<(i32, i32), Piece>) -> HashSet<(i32, i32)> {
@@ -177,22 +223,6 @@ impl Game {
         let mut checked_v = HashSet::new();
 
         let mut out = HashSet::new();
-        let explore = |f: &dyn Fn(i32) -> (i32, i32)| {
-            let mut out = Vec::new();
-            let mut run = |g: &dyn Fn(i32) -> i32| {
-                for i in 0.. {
-                    let c = f(g(i));
-                    if let Some(piece) = board.get(&c) {
-                        out.push((*piece, c));
-                    } else {
-                        break;
-                    }
-                }
-            };
-            run(&|i| i);
-            run(&|i| (-i - 1));
-            out
-        };
 
         let check = |pieces: &[(Piece, (i32, i32))]| -> bool {
             let mut seen_colors = HashSet::new();
@@ -212,7 +242,7 @@ impl Game {
         // Check that each row and column contains valid pieces
         for (x, y) in todo.into_iter() {
             if !checked_h.contains(&(x, y)) {
-                let row = explore(&|i| (x + i, y));
+                let row = Self::explore_from(board, |i| (x + i, y));
                 for (_, c) in row.iter() {
                     checked_h.insert(*c);
                 }
@@ -223,7 +253,7 @@ impl Game {
                 }
             }
             if !checked_v.contains(&(x, y)) {
-                let col = explore(&|i| (x, y + i));
+                let col = Self::explore_from(board, |i| (x, y + i));
                 for (_, c) in col.iter() {
                     checked_v.insert(*c);
                 }

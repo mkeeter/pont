@@ -350,6 +350,7 @@ impl Board {
                 self.exchange_div.class_list().remove_1("disabled")?;
             } else {
                 self.exchange_div.set_inner_html("<p>No pieces<br>left in bag</p>");
+                self.exchange_div.class_list().add_1("disabled")?;
             }
             self.svg_div.class_list().remove_1("nyt")
         } else {
@@ -484,7 +485,9 @@ impl Board {
                                    &format!("translate({} {})", tx, ty))?;
             let hand_index = self.tentative.remove(&(x, y)).unwrap();
             if self.tentative.is_empty() {
-                self.exchange_div.class_list().remove_1("disabled")?;
+                if self.pieces_remaining > 0 {
+                    self.exchange_div.class_list().remove_1("disabled")?;
+                }
                 self.accept_button.set_disabled(true);
                 self.reject_button.set_disabled(true);
             }
@@ -1115,6 +1118,7 @@ impl State {
             on_move_accepted(dealt: &[Piece]),
             on_move_rejected(),
             on_player_score(delta: u32, total: u32),
+            on_finished(winner: usize),
         ],
         CreateOrJoin => [
             on_room_name_invalid(),
@@ -1615,9 +1619,7 @@ impl Playing {
         Ok(())
     }
 
-    fn on_player_score(&mut self, delta: u32, total: u32)
-        -> JsError
-    {
+    fn on_player_score(&mut self, delta: u32, total: u32) -> JsError {
         self.score_table.child_nodes()
             .item(self.active_player as u32 + 1)
             .unwrap()
@@ -1629,6 +1631,25 @@ impl Playing {
             self.active_player_name(),
             delta,
             if delta > 1 { "s" } else { "" }))
+    }
+
+    fn on_finished(&mut self, winner: usize) -> JsError {
+        self.board.set_my_turn(false)?;
+
+        let children = self.score_table.child_nodes();
+        children
+            .item((self.active_player + 1) as u32)
+            .unwrap()
+            .dyn_into::<HtmlElement>()?
+            .class_list()
+            .remove_1("active")?;
+
+        if winner == self.player_index {
+            self.on_information("You win!")
+        } else {
+            self.on_information(&format!("{} wins!",
+                self.player_names[winner]))
+        }
     }
 }
 
@@ -1659,6 +1680,7 @@ fn on_message(msg: ServerMessage) -> JsError {
         MoveRejected => state.on_move_rejected(),
         PlayerScore{delta, total} =>
             state.on_player_score(delta, total),
+        ItsOver(winner) => state.on_finished(winner),
     }
 }
 
