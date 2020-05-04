@@ -1,4 +1,0 @@
-index.html
-style.css
-pkg/pont_client.js
-pkg/pont_client_bg.wasm
