@@ -96,17 +96,17 @@ impl Game {
             let row = f(Self::explore_from(&self.board, |i| (*x + i, *y)));
             if row.len() > 1 && seen_rows.insert(row[0]) {
                 score += row.len();
-            }
-            if row.len() == 6 {
-                score += 6;
+                if row.len() == 6 {
+                    score += 6;
+                }
             }
 
             let col = f(Self::explore_from(&self.board, |i| (*x, *y + i)));
             if col.len() > 1 && seen_cols.insert(col[0]) {
                 score += col.len();
-            }
-            if col.len() == 6 {
-                score += 6;
+                if col.len() == 6 {
+                    score += 6;
+                }
             }
         }
         Some(score as u32)
