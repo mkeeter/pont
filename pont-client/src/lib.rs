@@ -17,6 +17,8 @@ use web_sys::{
     HtmlInputElement,
     MessageEvent,
     PointerEvent,
+    Request,
+    Response,
     SvgGraphicsElement,
     WebSocket,
 };
@@ -1691,24 +1693,54 @@ fn on_message(msg: ServerMessage) -> JsError {
 pub fn main() -> JsError {
     console_error_panic_hook::set_once();
 
+    let window = web_sys::window()
+        .expect("no global `window` exists");
+    let doc = window.document()
+        .expect("should have a document on window");
+
+    let location = doc.location()
+        .expect("Could not get doc location");
+    let href = location.href()?;
+    let hostname = location.hostname()?;
+
+    // Request the URL for the websocket server
+    let url = format!("{}/ws", href);
+    let request = Request::new_with_str(&url)?;
+    let fetch = window.fetch_with_request(&request);
+
+    let text_cb = Closure::wrap(Box::new(move |text: JsValue| {
+        console_log!("{:?}", text);
+        start(text).expect("Could not start app");
+    }) as Box<dyn FnMut(JsValue)>);
+    let fetch_cb = Closure::wrap(Box::new(move |e: JsValue| {
+        console_log!("{:?}", e);
+        let r: Response = e.dyn_into()
+            .expect("Could not cast to response");
+        if r.ok() {
+            let _ = r.text()
+                .expect("Could not create text() promise")
+                .then(&text_cb);
+        } else {
+            start(JsValue::from_str(&format!("ws://{}:8080", hostname)))
+                .expect("Could not start with default hostname");
+        }
+    }) as Box<dyn FnMut(JsValue)>);
+
+    let _ = fetch.then(&fetch_cb);
+    fetch_cb.forget();
+
+    Ok(())
+}
+
+fn start(text: JsValue) -> JsError {
     let doc = web_sys::window()
         .expect("no global `window` exists")
         .document()
         .expect("should have a document on window");
-    let body = doc.body().expect("document should have a body");
-
-    // Manufacture the element we're gonna append
-    let val = doc.create_element("p")?;
-    val.set_text_content(Some("Connecting..."));
-
-    let main_div = doc.create_element("div")?
-        .dyn_into::<HtmlElement>()?;
-    main_div.set_id("main");
-    main_div.append_child(&val)?;
-    body.insert_adjacent_element("afterbegin", &main_div)?;
-
-    let hostname = doc.location().unwrap().hostname()?;
-    let ws = WebSocket::new(&format!("ws://{}:8080", hostname))?;
+    let hostname = text.as_string()
+        .expect("Could not convert hostname to string");
+    console_log!("Connecting to websocket at {}", hostname);
+    let ws = WebSocket::new(&hostname)?;
 
     // The websocket callbacks are long-lived, so we forget them here
     set_event_cb(&ws, "open", move |_: JsValue| {
@@ -1739,6 +1771,9 @@ pub fn main() -> JsError {
         Ok(())
     }).forget();
 
+    let main_div = doc.get_element_by_id("main")
+        .expect("Could not find main div")
+        .dyn_into()?;
     let base = Base { doc, main_div, ws };
     *HANDLE.lock().unwrap() = State::Connecting(Connecting { base });
 
