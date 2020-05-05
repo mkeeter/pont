@@ -9,6 +9,7 @@ use web_sys::{
     Element,
     Event,
     EventTarget,
+    FileReader,
     Document,
     KeyboardEvent,
     HtmlButtonElement,
@@ -16,6 +17,7 @@ use web_sys::{
     HtmlInputElement,
     MessageEvent,
     PointerEvent,
+    ProgressEvent,
     Request,
     Response,
     SvgGraphicsElement,
@@ -1617,9 +1619,11 @@ fn start(text: JsValue) -> JsError {
         HANDLE.lock().unwrap()
             .on_connected()
     }).forget();
-    let on_decoded_cb = Closure::wrap(Box::new(move |e: JsValue| {
-        console_log!("{:?}", e);
-        let buf = js_sys::Uint8Array::new(&e);
+    let on_decoded_cb = Closure::wrap(Box::new(move |e: ProgressEvent| {
+        let target = e.target().expect("Could not get target");
+        let reader: FileReader = target.dyn_into().expect("Could not cast");
+        let result = reader.result().expect("Could not get result");
+        let buf = js_sys::Uint8Array::new(&result);
         let mut data = vec![0; buf.length() as usize];
         buf.copy_to(&mut data[..]);
         let msg = bincode::deserialize(&data[..])
@@ -1628,11 +1632,13 @@ fn start(text: JsValue) -> JsError {
             .expect("Could not decode message");
         on_message(msg)
             .expect("Message decoding failed")
-    }) as Box<dyn FnMut(JsValue)>);
+    }) as Box<dyn FnMut(ProgressEvent)>);
     set_event_cb(&ws, "message", move |e: MessageEvent| {
-        let _ = e.data().dyn_into::<Blob>()?
-            .array_buffer()
-            .then(&on_decoded_cb);
+        let blob = e.data().dyn_into::<Blob>()?;
+        let fr = FileReader::new()?;
+        fr.add_event_listener_with_callback("load",
+                &on_decoded_cb.as_ref().unchecked_ref())?;
+        fr.read_as_array_buffer(&blob)?;
         Ok(())
     }).forget();
 
