@@ -186,6 +186,7 @@ pub struct Board {
     pointer_down_cb: JsClosure<PointerEvent>,
     pointer_move_cb: JsClosure<PointerEvent>,
     pointer_up_cb: JsClosure<PointerEvent>,
+    touch_start_cb: JsClosure<Event>,
 
     pan_move_cb: JsClosure<PointerEvent>,
     pan_end_cb: JsClosure<PointerEvent>,
@@ -321,6 +322,10 @@ impl Board {
             HANDLE.lock().unwrap()
                 .on_pan_end(evt)
         });
+        let touch_start_cb = build_cb(move |evt: Event| {
+            evt.prevent_default();
+            Ok(())
+        });
 
         let out = Board {
             doc: doc.clone(),
@@ -334,6 +339,7 @@ impl Board {
             pointer_down_cb,
             pointer_up_cb,
             pointer_move_cb,
+            touch_start_cb,
             pan_move_cb,
             pan_end_cb,
             anim_cb,
@@ -760,6 +766,9 @@ impl Board {
                                               5 + 15 * self.hand.len()))?;
         g.add_event_listener_with_callback("pointerdown",
             self.pointer_down_cb.as_ref().unchecked_ref())?;
+        g.add_event_listener_with_callback("touchstart",
+            self.touch_start_cb.as_ref().unchecked_ref())?;
+
         self.hand.push((p, g.clone()));
 
         Ok(g)
