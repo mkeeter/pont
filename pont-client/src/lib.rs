@@ -13,7 +13,6 @@ use web_sys::{
     KeyboardEvent,
     HtmlButtonElement,
     HtmlElement,
-    HtmlTableCellElement,
     HtmlInputElement,
     MessageEvent,
     PointerEvent,
@@ -195,108 +194,31 @@ pub struct Board {
 }
 
 impl Board {
-    fn new(doc: &Document, game_div: &HtmlElement, pieces_remaining: usize)
+    fn new(doc: &Document, pieces_remaining: usize)
         -> JsResult<Board>
     {
-        let dummy = doc.create_svg_element("svg")?
-            .dyn_into::<SvgGraphicsElement>()?;
-        dummy.set_attribute("viewBox", "0 0 200 200")?;
-        dummy.set_id("dummy");
-
-        // Add an SVG
-        let svg = doc.create_svg_element("svg")?
-            .dyn_into::<SvgGraphicsElement>()?;
-        svg.set_id("game");
-        svg.set_attribute("width", "100")?;
-        svg.set_attribute("hight", "100")?;
-        svg.set_attribute("viewBox", "0 0 200 200")?;
-
-        // Add a clipping rectangle so that tiles don't drag outside
-        // the main playing area
-        let clip_defs = doc.create_svg_element("defs")?;
-        let clip_path = doc.create_svg_element("clipPath")?;
-        clip_path.set_id("clip_rect");
-        let clip_rect = doc.create_svg_element("rect")?
-            .dyn_into::<Element>()?;
-        clip_rect.set_attribute("width", "200")?;
-        clip_rect.set_attribute("height", "175")?;
-        clip_rect.set_attribute("x", "0")?;
-        clip_rect.set_attribute("y", "0")?;
-        clip_path.append_child(&clip_rect)?;
-        clip_defs.append_child(&clip_path)?;
-        svg.append_child(&clip_defs)?;
-
-        // Add a transparent background rectangle which is used for panning
-        let pan_rect = doc.create_svg_element("rect")?
-            .dyn_into::<Element>()?;
-        pan_rect.set_attribute("width", "200")?;
-        pan_rect.set_attribute("height", "175")?;
-        pan_rect.set_attribute("x", "0")?;
-        pan_rect.set_attribute("y", "0")?;
-        svg.append_child(&pan_rect)?;
-        pan_rect.set_id("transparent");
+        let pan_rect = doc.get_element_by_id("pan_rect")
+            .expect("Could not find pan rect");
         set_event_cb(&pan_rect, "pointerdown", move |evt: PointerEvent| {
             HANDLE.lock().unwrap()
                 .on_pan_start(evt)
         }).forget();
 
-        let clip_group = doc.create_svg_element("g")?;
-        clip_group.set_attribute("clip-path", "url(#clip_rect)")?;
-        let pan_group = doc.create_svg_element("g")?
-            .dyn_into::<Element>()?;
-        clip_group.append_child(&pan_group)?;
-        svg.append_child(&clip_group)?;
-        let pan_offset = (5.0, 7.5);
-        pan_group.set_attribute(
-            "transform",
-            &format!("translate({} {})", pan_offset.0, pan_offset.1))?;
-
-        let svg_div = doc.create_element("div")?;
-        svg_div.set_id("svg");
-        svg_div.append_child(&dummy)?;
-
-        let hand_div = doc.create_element("div")?;
-        hand_div.set_id("hand");
-        hand_div.set_class_name("background");
-        svg_div.append_child(&hand_div)?;
-
-        let board_div = doc.create_element("div")?;
-        board_div.set_class_name("background");
-        board_div.set_id("board");
-        svg_div.append_child(&board_div)?;
-
-        let accept_button = doc.create_element("button")?
-            .dyn_into::<HtmlButtonElement>()?;
-        accept_button.set_inner_html("<i class=\"fas fa-check\"></i>");
-        accept_button.set_id("accept_button");
-        accept_button.set_class_name("gameplay");
-        accept_button.set_disabled(true);
-        svg_div.append_child(&accept_button)?;
+        let accept_button = doc.get_element_by_id("accept_button")
+            .expect("Could not find accept_button")
+            .dyn_into()?;
         set_event_cb(&accept_button, "click", move |evt: Event| {
             HANDLE.lock().unwrap()
                 .on_accept_button(evt)
         }).forget();
 
-        let reject_button = doc.create_element("button")?
-            .dyn_into::<HtmlButtonElement>()?;
-        reject_button.set_inner_html("<i class=\"fas fa-times\"></i>");
-        reject_button.set_id("reject_button");
-        reject_button.set_class_name("gameplay");
-        reject_button.set_disabled(true);
-        svg_div.append_child(&reject_button)?;
+        let reject_button = doc.get_element_by_id("reject_button")
+            .expect("Could not find reject_button")
+            .dyn_into()?;
         set_event_cb(&reject_button, "click", move |evt: Event| {
             HANDLE.lock().unwrap()
                 .on_reject_button(evt)
         }).forget();
-
-        let exchange_div = doc.create_element("div")?;
-        exchange_div.set_inner_html("<p>Drop here to<br>swap pieces</p>");
-        exchange_div.set_id("exchange");
-        svg_div.append_child(&exchange_div)?;
-
-        svg_div.append_child(&svg)?;
-
-        game_div.append_child(&svg_div)?;
 
         let pointer_down_cb = build_cb(move |evt: PointerEvent| {
             HANDLE.lock().unwrap()
@@ -327,11 +249,22 @@ impl Board {
             Ok(())
         });
 
+        let svg = doc.get_element_by_id("game_svg")
+            .expect("Could not find game svg")
+            .dyn_into()?;
+        let svg_div = doc.get_element_by_id("svg_div")
+            .expect("Could not find svg div");
+        let pan_group = doc.get_element_by_id("pan_group")
+            .expect("Could not find pan_group");
+        let exchange_div = doc.get_element_by_id("exchange_div")
+            .expect("Could not find exchange_div");
+
         let out = Board {
             doc: doc.clone(),
             drag: DragState::Idle,
             svg, svg_div,
-            pan_group, pan_offset,
+            pan_group,
+            pan_offset: (0.0, 0.0),
             grid: HashMap::new(),
             tentative: HashMap::new(),
             exchange_list: Vec::new(),
@@ -1026,18 +959,10 @@ impl Board {
 
 pub struct Base {
     doc: Document,
-    main_div: HtmlElement,
     ws: WebSocket,
 }
 
 impl Base {
-    fn clear_main_div(&self) -> JsError {
-        while let Some(c) = self.main_div.first_child() {
-            self.main_div.remove_child(&c)?;
-        }
-        Ok(())
-    }
-
     fn send(&self, msg: ClientMessage) -> JsError {
         let encoded = bincode::serialize(&msg)
             .map_err(|e| JsValue::from_str(
@@ -1175,81 +1100,51 @@ fn set_event_cb<E, F, T>(obj: &E, name: &str, f: F) -> JsClosure<T>
 
 impl Connecting {
     fn on_connected(self) -> JsResult<CreateOrJoin> {
-        // Remove the "Connecting..." message
-        self.base.clear_main_div()?;
-
-        // Return the new state
+        self.base.doc.get_element_by_id("connecting")
+            .expect("Could not get connecting div")
+            .dyn_into::<HtmlElement>()?
+            .set_hidden(true);
+        self.base.doc.get_element_by_id("join")
+            .expect("Could not get join div")
+            .dyn_into::<HtmlElement>()?
+            .set_hidden(false);
         CreateOrJoin::new(self.base)
     }
 }
 
 impl CreateOrJoin {
     fn new(base: Base) -> JsResult<CreateOrJoin> {
-        // When any of the text fields change, check to see whether
-        // the "Join" button should be enabled
-        let form = base.doc.create_element("form")?;
-
-        let p = base.doc.create_element("p")?;
-        let b = base.doc.create_element("b")?;
-        b.set_text_content(Some("Name:"));
-        p.append_child(&b)?;
-        let name_input = base.doc.create_element("input")?
-            .dyn_into::<HtmlInputElement>()?;
-        name_input.set_id("name_input");
-        name_input.set_attribute("placeholder", "John Smith")?;
-        name_input.set_required(true);
-        p.append_child(&name_input)?;
-        form.append_child(&p)?;
-
-        let p = base.doc.create_element("p")?;
-        let b = base.doc.create_element("b")?;
-        b.set_text_content(Some("Room:"));
-        p.append_child(&b)?;
-        let room_input = base.doc.create_element("input")?
-            .dyn_into::<HtmlInputElement>()?;
-        room_input.set_id("room_input");
-        room_input.set_pattern("^[a-z]+ [a-z]+ [a-z]+$");
-        p.append_child(&room_input)?;
+        let name_input = base.doc.get_element_by_id("name_input")
+            .expect("Could not find name_input")
+            .dyn_into()?;
+        let room_input = base.doc.get_element_by_id("room_input")
+            .expect("Could not find room_input")
+            .dyn_into()?;
         let room_invalid_cb = set_event_cb(&room_input, "invalid",
             move |_: Event| {
                 HANDLE.lock().unwrap().on_room_name_invalid()
             });
-        form.append_child(&p)?;
-
-        let p = base.doc.create_element("p")?;
-        let play_button = base.doc.create_element("button")?
-            .dyn_into::<HtmlButtonElement>()?;
-        play_button.set_text_content(Some("Create new room"));
-        play_button.set_id("play_button");
-        play_button.set_type("submit");
-        p.append_child(&play_button)?;
-        form.append_child(&p)?;
-
-        base.main_div.append_child(&form)?;
         let input_cb = set_event_cb(&room_input, "input", move |_: Event| {
             HANDLE.lock().unwrap().on_join_inputs_changed()
         });
+
+        let form = base.doc.get_element_by_id("join_form")
+            .expect("Could not find join_form");
         let submit_cb = set_event_cb(&form, "submit", move |e: Event| {
             e.prevent_default();
             HANDLE.lock().unwrap().on_join_button()
         });
 
-        let err_div = base.doc.create_element("div")?
-            .dyn_into::<HtmlElement>()?;
-        err_div.set_id("error");
+        let err_div = base.doc.get_element_by_id("err_div")
+            .expect("Could not find err_div")
+            .dyn_into()?;
+        let err_span = base.doc.get_element_by_id("err_span")
+            .expect("Could not find err_span")
+            .dyn_into()?;
 
-        let i = base.doc.create_element("i")?;
-        i.set_class_name("fas fa-exclamation-triangle");
-
-        let err_span = base.doc.create_element("span")?
-            .dyn_into::<HtmlElement>()?;
-        err_span.set_id("err_span");
-
-        err_div.append_child(&i)?;
-        err_div.append_child(&err_span)?;
-        err_div.set_hidden(true);
-
-        base.main_div.append_child(&err_div)?;
+        let play_button = base.doc.get_element_by_id("play_button")
+            .expect("Could not find play_button")
+            .dyn_into()?;
 
         Ok(CreateOrJoin {
             base,
@@ -1277,7 +1172,15 @@ impl CreateOrJoin {
                       active_player: usize, board: &[((i32, i32), Piece)],
                       pieces: &[Piece], remaining: usize) -> JsResult<Playing>
     {
-        self.base.clear_main_div()?;
+        self.base.doc.get_element_by_id("join")
+            .expect("Could not get join div")
+            .dyn_into::<HtmlElement>()?
+            .set_hidden(true);
+        self.base.doc.get_element_by_id("playing")
+            .expect("Could not get playing div")
+            .dyn_into::<HtmlElement>()?
+            .set_hidden(false);
+
         let mut p = Playing::new(self.base, room_name, players,
                                  active_player, board, pieces, remaining)?;
         p.on_information(&format!("Welcome, {}!", players.last().unwrap().0))?;
@@ -1324,72 +1227,22 @@ impl Playing {
         let player_index = players.len() - 1;
 
         // The title lists the room name
-        let p = base.doc.create_element("p")?;
-        let b = base.doc.create_element("b")?;
-        b.set_text_content(Some("Room: "));
-        let s = base.doc.create_element("span")?;
+        let s: HtmlElement = base.doc.get_element_by_id("room_name")
+            .expect("Could not get room_name")
+            .dyn_into()?;
         s.set_text_content(Some(&room_name));
-        p.append_child(&b)?;
-        p.append_child(&s)?;
-        base.main_div.append_child(&p)?;
 
-        // This div is styled as either 1-3 columns based on screen size
-        let game_div = base.doc.create_element("div")?
-            .dyn_into::<HtmlElement>()?;
-        game_div.set_id("game");
-        base.main_div.append_child(&game_div)?;
+        let board = Board::new(&base.doc, remaining)?;
 
-        let board = Board::new(&base.doc, &game_div, remaining)?;
-
-        let score_col = base.doc.create_element("div")?
-            .dyn_into::<HtmlElement>()?;
-        let score_table = base.doc.create_element("table")?
-            .dyn_into::<HtmlElement>()?;
-        score_table.set_id("scores");
-        let tr = base.doc.create_element("tr")?;
-        let th = base.doc.create_element("th")?
-            .dyn_into::<HtmlTableCellElement>()?;
-        th.set_col_span(2);
-        th.set_text_content(Some("Player"));
-        tr.append_child(&th)?;
-        let th = base.doc.create_element("th")?;
-        th.set_text_content(Some("Score"));
-        tr.append_child(&th)?;
-        score_table.append_child(&tr)?;
-        score_col.append_child(&score_table)?;
-        game_div.append_child(&score_col)?;
-
-        // Create the column for chatting
-        let chat_col = base.doc.create_element("div")?
-            .dyn_into::<HtmlElement>()?;
-        chat_col.set_id("chat_col");
-        let chat_div = base.doc.create_element("div")?
-            .dyn_into::<HtmlElement>()?;
-        chat_div.set_id("chat");
-        chat_col.append_child(&chat_div)?;
-
-        // Name + text input
-        let chat_input_div = base.doc.create_element("div")?;
-        chat_input_div.set_id("chat_input");
-
-        let chat_name_div = base.doc.create_element("p")?;
-        chat_name_div.set_id("chat_name");
-        let b = base.doc.create_element("b")?;
+        let b = base.doc.get_element_by_id("chat_name")
+            .expect("Could not get chat_name");
         b.set_text_content(Some(&format!("{}:", players[player_index].0)));
-        chat_name_div.append_child(&b)?;
-        chat_input_div.append_child(&chat_name_div)?;
-
-        let chat_input = base.doc.create_element("input")?
-            .dyn_into::<HtmlInputElement>()?;
-        chat_input.set_id("chat_input");
-        chat_input.set_attribute("placeholder", "Send message...")?;
-        chat_input_div.append_child(&chat_input)?;
-
-        chat_col.append_child(&chat_input_div)?;
-        game_div.append_child(&chat_col)?;
 
         // If Enter is pressed while focus is in the chat box,
         // send a chat message to the server.
+        let chat_input = base.doc.get_element_by_id("chat_input")
+            .expect("Could not get chat_input")
+            .dyn_into()?;
         let keyup_cb = set_event_cb(&chat_input, "keyup",
             move |e: KeyboardEvent| {
                 if e.key_code() == 13 { // Enter key
@@ -1399,6 +1252,13 @@ impl Playing {
                     Ok(())
                 }
             });
+
+        let chat_div = base.doc.get_element_by_id("chat_msgs")
+            .expect("Could not get chat_div")
+            .dyn_into()?;
+        let score_table = base.doc.get_element_by_id("score_rows")
+            .expect("Could not get score_rows")
+            .dyn_into()?;
 
         let mut out = Playing {
             base,
@@ -1631,10 +1491,11 @@ impl Playing {
     }
 
     fn on_player_score(&mut self, delta: u32, total: u32) -> JsError {
-        self.score_table.child_nodes()
-            .item(self.active_player as u32 + 1)
-            .unwrap()
-            .child_nodes()
+        // Not sure why this weird indexing is needed
+        let t = self.score_table.child_nodes()
+            .item(2 * (self.active_player as u32 + 1) + 1)
+            .unwrap();
+        t.child_nodes()
             .item(2)
             .unwrap()
             .set_text_content(Some(&total.to_string()));
@@ -1780,10 +1641,7 @@ fn start(text: JsValue) -> JsError {
         Ok(())
     }).forget();
 
-    let main_div = doc.get_element_by_id("main")
-        .expect("Could not find main div")
-        .dyn_into()?;
-    let base = Base { doc, main_div, ws };
+    let base = Base { doc, ws };
     *HANDLE.lock().unwrap() = State::Connecting(Connecting { base });
 
     Ok(())

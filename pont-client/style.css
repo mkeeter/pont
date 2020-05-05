@@ -38,7 +38,7 @@ input {
 }
 
 /*  Shows an error if you connect to an invalid room */
-div#error {
+div#err_div {
     color: var(--red);
 }
 span#err_span {
@@ -46,7 +46,7 @@ span#err_span {
 }
 
 /*  Welcome to... the chat zone */
-div#chat_input {
+div#chat_input_div {
     display:flex;
     flex-direction: row;
     margin-top: 10px;
@@ -58,19 +58,19 @@ input#chat_input {
 div#chat_name {
     padding-top: 10px;
 }
-div#chat {
+div#chat_msgs {
     height: 100px;
     overflow-y: auto;
     border:1px solid var(--dark4);
     background-color: var(--light0);
     padding: 10px;
 }
-div#chat_col {
+div#chat_div {
     display: flex;
     flex-direction: column;
     overflow-x: auto;
 }
-#chat span {
+#chat_msgs span {
     margin-left: 5px;
 }
 p.msg {
@@ -117,7 +117,7 @@ div#game {
 }
 
 /* List of players */
-table#scores {
+table#score_table {
     width: 100%;
     margin-bottom: 20px;
 }
@@ -140,7 +140,7 @@ g.placed rect.tile {
     stroke-width: 0.5;
     stroke: var(--dark4);
 }
-div#svg.nyt g.piece rect.tile {
+div#svg_div.nyt g.piece rect.tile {
     fill: var(--dark3);
 }
 g.piece rect.tile {
@@ -152,7 +152,7 @@ g.invalid rect.tile {
     fill: var(--dark-red);
     stroke: var(--red);
 }
-div#svg.nyt g.piece {
+div#svg_div.nyt g.piece {
     pointer-events: none;
 }
 g.piece {
@@ -163,7 +163,7 @@ rect.shadow {
     stroke-width: 0.5;
     stroke: var(--light2);
 }
-rect#transparent {
+rect#pan_rect {
     fill: none;
     pointer-events: all;
 }
@@ -210,7 +210,7 @@ button#accept_button {
     transform: translateY(-100%) translateX(-210%);
 }
 
-div#exchange {
+div#exchange_div {
     position: absolute;
     border:1px solid var(--dark4);
     background-color: var(--light0);
@@ -220,16 +220,16 @@ div#exchange {
     left: 0%;
     transform: translateY(-100%) translateX(178%);
 }
-div#exchange.disabled {
+div#exchange_div.disabled {
     color: var(--dark4);
     background-color: var(--light1);
 }
-div#svg.nyt div#exchange {
+div#svg_div.nyt div#exchange_div {
     color: var(--dark4);
     background-color: var(--light1);
 }
 
-div#exchange p {
+div#exchange_div p {
     text-align: center;
     margin: 0;
     position: relative;
@@ -244,7 +244,7 @@ svg#dummy {
 }
 
 /*  Main game board */
-svg#game {
+svg#game_svg {
     position: absolute;
     width: 100%;
     height: 100%;
@@ -273,7 +273,7 @@ div#board {
     height: calc(87.5%);
 }
 
-div#svg {
+div#svg_div {
     margin-bottom: 10px;
     position: relative;
     touch-action: none;
@@ -284,7 +284,7 @@ div#svg {
     div#game {
         grid-template-columns: 2fr 1fr;
     }
-    div#chat_col{
+    div#chat_div {
         grid-column: 1 / span 2;
     }
     button.gameplay {
@@ -294,7 +294,7 @@ div#svg {
 
 /* Three-column layout */
 @media only screen and (min-width: 1200px) {
-    div#svg {
+    div#svg_div {
         margin-bottom: 0px;
     }
     button.gameplay {
@@ -303,12 +303,12 @@ div#svg {
     div#game {
         grid-template-columns: 2fr 1fr 1fr;
     }
-    div#chat {
+    div#chat_msgs {
         display:flex;
         flex-direction: column;
         flex: 1 0 auto;
     }
-    div#chat_col{
+    div#chat_div {
         grid-column: 3;
     }
 }

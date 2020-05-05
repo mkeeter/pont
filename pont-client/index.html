@@ -1,58 +1,82 @@
 <html>
-  <head>
-    <meta content="text/html;charset=utf-8" http-equiv="Content-Type"/>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>pont</title>
-  </head>
-  <body>
+    <head>
+        <meta content="text/html;charset=utf-8" http-equiv="Content-Type"/>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>pont</title>
+    </head>
+    <body>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.13.0/css/all.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css?family=Inconsolata" rel="stylesheet">
     <link href="style.css" rel="stylesheet">
 
-    <!-- Note the usage of `type=module` here as this is an ES6 module -->
     <script type="module">
-      // Use ES module import syntax to import functionality from the module
-      // that we have compiled.
-      //
-      // Note that the `default` import is an initialization function which
-      // will "boot" the module and make it ready to use. Currently browsers
-      // don't support natively imported WebAssembly as an ES module, but
-      // eventually the manual initialization won't be required!
-      import init from './pkg/pont_client.js';
-
-      async function run() {
-        // First up we need to actually load the wasm file, so we use the
-        // default export to inform it where the wasm file is located on the
-        // server, and then we wait on the returned promise to wait for the
-        // wasm to be loaded.
-        //
-        // It may look like this: `await init('./pkg/without_a_bundler_bg.wasm');`,
-        // but there is also a handy default inside `init` function, which uses
-        // `import.meta` to locate the wasm file relatively to js file.
-        //
-        // Note that instead of a string you can also pass in any of the
-        // following things:
-        //
-        // * `WebAssembly.Module`
-        //
-        // * `ArrayBuffer`
-        //
-        // * `Response`
-        //
-        // * `Promise` which returns any of the above, e.g. `fetch("./path/to/wasm")`
-        //
-        // This gives you complete control over how the module is loaded
-        // and compiled.
-        //
-        // Also note that the promise, when resolved, yields the wasm module's
-        // exports which is the same as importing the `*_bg` module in other
-        // modes
-        await init();
-      }
-
-      run();
+        import init from './pkg/pont_client.js';
+        async function run() {
+            await init();
+        }
+        run();
     </script>
-    <div id="main"><p>Connecting...</p></div>
+
+    <!-- Initial UI just says "Connecting..." -->
+    <div id="connecting"><p>Connecting...</p></div>
+
+    <!-- UI while joining the game -->
+    <div id="join" hidden="">
+        <form id="join_form">
+            <p><b>Name:</b><input id="name_input" placeholder="John Smith" required=""></p>
+            <p><b>Room:</b><input id="room_input" pattern="^[a-z]+ [a-z]+ [a-z]+$"></p>
+            <p><button id="play_button" type="submit">Create new room</button></p>
+        </form>
+        <div id="err_div" hidden="">
+            <i class="fas fa-exclamation-triangle"></i>
+            <span id="err_span"></span>
+        </div>
+    </div>
+
+    <!-- Main game UI -->
+    <div id="playing" hidden="">
+        <p><b>Room:</b><span id="room_name"></span></p>
+        <div id="game">
+            <div id="svg_div">
+                <svg id="dummy" viewBox="0 0 200 200"></svg>
+                <div id="hand" class="background"></div>
+                <div id="board" class="background"></div>
+                <div id="exchange_div"><p>Drop here to<br>swap pieces</p></div>
+                <button id="accept_button" class="gameplay disabled">
+                    <i class="fas fa-check"></i>
+                </button>
+                <button id="reject_button" class="gameplay disabled">
+                    <i class="fas fa-times"></i>
+                </button>
+                <svg id="game_svg" width="100" height="100" viewBox="0 0 200 200">
+                    <defs>
+                        <clipPath id="clip_rect">
+                            <rect width="200" height="175" x="0" y="0"></rect>
+                        </clipPath>
+                    </defs>
+                    <rect id="pan_rect" width="200" height="175" x="0" y="0"></rect>
+                    <g clip-path="url(#clip_rect)">
+                        <g id="pan_group" transform="translate(0 0)"></g>
+                    </g>
+                </svg>
+            </div>
+            <div>
+                <table id="score_table">
+                    <tbody id="score_rows">
+                        <tr><th colspan="2">Player</th><th>Score</th></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div id="chat_div">
+                <div id="chat_msgs"></div>
+                <div id="chat_input_div">
+                    <p><b id="chat_name"></b></p>
+                    <input id="chat_input" placeholder="Send Message...">
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div><p>© 2020 <a href="https://mattkeeter.com">Matt Keeter</a></div>
   </body>
 </html>
