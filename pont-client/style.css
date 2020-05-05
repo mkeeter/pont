@@ -99,8 +99,15 @@ form:invalid button {
     background-color: var(--light1);
 }
 
-form:not(:invalid) button:hover {
-    border-radius: 15px;
+/*  Only change button radius on hover for devices that support it
+ *  (otherwise, they get hovered on click, which is weird) */
+@media (hover: hover) {
+    form:not(:invalid) button:hover {
+        border-radius: 15px;
+    }
+    button.gameplay:hover {
+        border-radius: 15px;
+    }
 }
 
 /*  Main game div */
@@ -191,9 +198,6 @@ button.gameplay:disabled {
     color: var(--dark4);
     background-color: var(--light1);
     pointer-events: none;
-}
-button.gameplay:hover {
-    border-radius: 15px;
 }
 button#reject_button {
     left: 100%;
