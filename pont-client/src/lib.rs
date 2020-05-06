@@ -1376,7 +1376,7 @@ impl Playing {
 
     fn on_player_disconnected(&self, index: usize) -> JsError {
         let c = self.score_table.child_nodes()
-            .item((index + 1) as u32)
+            .item((index + 3) as u32)
             .unwrap()
             .dyn_into::<HtmlElement>()?;
         c.class_list().add_1("disconnected")?;
