@@ -35,17 +35,17 @@
 
     <!-- Main game UI -->
     <div id="playing" hidden="">
-        <p><b>Room:</b><span id="room_name"></span></p>
+        <p><b>Room: </b><span id="room_name"></span></p>
         <div id="game">
-            <div id="svg_div">
+            <div id="svg_div" class="nyt">
                 <svg id="dummy" viewBox="0 0 200 200"></svg>
                 <div id="hand" class="background"></div>
                 <div id="board" class="background"></div>
                 <div id="exchange_div"><p>Drop here to<br>swap pieces</p></div>
-                <button id="accept_button" class="gameplay disabled">
+                <button id="accept_button" class="gameplay" disabled>
                     <i class="fas fa-check"></i>
                 </button>
-                <button id="reject_button" class="gameplay disabled">
+                <button id="reject_button" class="gameplay" disabled>
                     <i class="fas fa-times"></i>
                 </button>
                 <svg id="game_svg" width="100" height="100" viewBox="0 0 200 200">

@@ -1389,7 +1389,7 @@ impl Playing {
     {
         let children = self.score_table.child_nodes();
         children
-            .item((self.active_player + 1) as u32)
+            .item((self.active_player + 3) as u32)
             .unwrap()
             .dyn_into::<HtmlElement>()?
             .class_list()
@@ -1398,7 +1398,7 @@ impl Playing {
         self.active_player = active_player;
         self.board.pieces_remaining = remaining;
         children
-            .item((self.active_player + 1) as u32)
+            .item((self.active_player + 3) as u32)
             .unwrap()
             .dyn_into::<HtmlElement>()?
             .class_list()
@@ -1493,13 +1493,12 @@ impl Playing {
     }
 
     fn on_player_score(&mut self, delta: u32, total: u32) -> JsError {
-        // Not sure why this weird indexing is needed
-        let t = self.score_table.child_nodes()
-            .item(2 * (self.active_player as u32 + 1) + 1)
-            .unwrap();
-        t.child_nodes()
+        self.score_table.child_nodes()
+            .item(self.active_player as u32 + 3)
+            .expect("Could not get table row")
+            .child_nodes()
             .item(2)
-            .unwrap()
+            .expect("Could not get score value")
             .set_text_content(Some(&total.to_string()));
         self.on_information(&format!("{} scored {} point{}",
             self.active_player_name(),
@@ -1512,7 +1511,7 @@ impl Playing {
 
         let children = self.score_table.child_nodes();
         children
-            .item((self.active_player + 1) as u32)
+            .item((self.active_player + 3) as u32)
             .unwrap()
             .dyn_into::<HtmlElement>()?
             .class_list()
