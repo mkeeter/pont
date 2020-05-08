@@ -5,6 +5,7 @@ use wasm_bindgen::convert::FromWasmAbi;
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use web_sys::{
+    AddEventListenerOptions,
     Blob,
     Element,
     Event,
@@ -187,7 +188,6 @@ pub struct Board {
     pointer_down_cb: JsClosure<PointerEvent>,
     pointer_move_cb: JsClosure<PointerEvent>,
     pointer_up_cb: JsClosure<PointerEvent>,
-    touch_start_cb: JsClosure<Event>,
 
     pan_move_cb: JsClosure<PointerEvent>,
     pan_end_cb: JsClosure<PointerEvent>,
@@ -246,10 +246,6 @@ impl Board {
             HANDLE.lock().unwrap()
                 .on_pan_end(evt)
         });
-        let touch_start_cb = build_cb(move |evt: Event| {
-            evt.prevent_default();
-            Ok(())
-        });
 
         let svg = doc.get_element_by_id("game_svg")
             .expect("Could not find game svg")
@@ -274,7 +270,6 @@ impl Board {
             pointer_down_cb,
             pointer_up_cb,
             pointer_move_cb,
-            touch_start_cb,
             pan_move_cb,
             pan_end_cb,
             anim_cb,
@@ -344,10 +339,23 @@ impl Board {
             .dyn_into::<Element>()?;
 
         target.set_pointer_capture(evt.pointer_id())?;
-        target.add_event_listener_with_callback("pointermove",
-                self.pan_move_cb.as_ref().unchecked_ref())?;
-        target.add_event_listener_with_callback("pointerup",
-                self.pan_end_cb.as_ref().unchecked_ref())?;
+
+
+        let mut options = AddEventListenerOptions::new();
+        options.passive(false);
+        target.set_pointer_capture(evt.pointer_id())?;
+        target.add_event_listener_with_callback_and_add_event_listener_options(
+            "pointermove",
+            self.pan_move_cb.as_ref().unchecked_ref(), &options)?;
+        target.add_event_listener_with_callback_and_add_event_listener_options(
+            "pointerup",
+            self.pan_end_cb.as_ref().unchecked_ref(), &options)?;
+        self.doc.body()
+            .expect("Could not get boby")
+            .add_event_listener_with_callback_and_add_event_listener_options(
+                "pointermove",
+                self.pan_move_cb.as_ref().unchecked_ref(), &options)?;
+
         Ok(())
     }
 
@@ -362,7 +370,7 @@ impl Board {
                                    self.pan_offset.0,
                                    self.pan_offset.1))
         } else {
-            Err(JsValue::from_str("Invalid state"))
+            Err(JsValue::from_str("Invalid state (pan move)"))
         }
     }
 
@@ -377,6 +385,12 @@ impl Board {
                 self.pan_move_cb.as_ref().unchecked_ref())?;
         target.remove_event_listener_with_callback("pointerup",
                 self.pan_end_cb.as_ref().unchecked_ref())?;
+        self.doc.body()
+            .expect("Could not get boby")
+            .remove_event_listener_with_callback(
+                "pointermove",
+                self.pan_move_cb.as_ref().unchecked_ref())?;
+
         self.drag = DragState::Idle;
         Ok(())
     }
@@ -442,11 +456,20 @@ impl Board {
         // Move to the back of the SVG object, so it's on top
         self.svg.append_child(&target)?;
 
+        let mut options = AddEventListenerOptions::new();
+        options.passive(false);
         target.set_pointer_capture(evt.pointer_id())?;
-        target.add_event_listener_with_callback("pointermove",
-                self.pointer_move_cb.as_ref().unchecked_ref())?;
-        target.add_event_listener_with_callback("pointerup",
-                self.pointer_up_cb.as_ref().unchecked_ref())?;
+        target.add_event_listener_with_callback_and_add_event_listener_options(
+            "pointermove",
+            self.pointer_move_cb.as_ref().unchecked_ref(), &options)?;
+        target.add_event_listener_with_callback_and_add_event_listener_options(
+            "pointerup",
+            self.pointer_up_cb.as_ref().unchecked_ref(), &options)?;
+        self.doc.body()
+            .expect("Could not get boby")
+            .add_event_listener_with_callback_and_add_event_listener_options(
+                "pointermove",
+                self.pointer_move_cb.as_ref().unchecked_ref(), &options)?;
 
         self.drag = DragState::Dragging(Dragging {
             target,
@@ -520,7 +543,7 @@ impl Board {
                 Some((gx, gy)) => DropTarget::ReturnToGrid(gx, gy),
             }))
         } else {
-            Err(JsValue::from_str("Invalid state"))
+            Err(JsValue::from_str("Invalid state (drop target)"))
         }
     }
 
@@ -541,7 +564,7 @@ impl Board {
                 _ => d.shadow.set_attribute("visibility", "hidden")
             }
         } else {
-            Err(JsValue::from_str("Invalid state"))
+            Err(JsValue::from_str("Invalid state (pointer move)"))
         }
     }
 
@@ -575,6 +598,11 @@ impl Board {
                     self.pointer_move_cb.as_ref().unchecked_ref())?;
             d.target.remove_event_listener_with_callback("pointerup",
                     self.pointer_up_cb.as_ref().unchecked_ref())?;
+            self.doc.body()
+                .expect("Could not get boby")
+                .remove_event_listener_with_callback(
+                    "pointermove",
+                    self.pointer_move_cb.as_ref().unchecked_ref())?;
 
             let (pos, drop_target) = self.drop_target(&evt)?;
             self.drag = match drop_target {
@@ -699,10 +727,13 @@ impl Board {
         g.class_list().add_1("piece")?;
         g.set_attribute("transform", &format!("translate({} 185)",
                                               5 + 15 * self.hand.len()))?;
-        g.add_event_listener_with_callback("pointerdown",
-            self.pointer_down_cb.as_ref().unchecked_ref())?;
-        g.add_event_listener_with_callback("touchstart",
-            self.touch_start_cb.as_ref().unchecked_ref())?;
+
+        let mut options = AddEventListenerOptions::new();
+        options.passive(false);
+        g.add_event_listener_with_callback_and_add_event_listener_options(
+            "pointerdown",
+            self.pointer_down_cb.as_ref().unchecked_ref(),
+            &options)?;
 
         self.hand.push((p, g.clone()));
 

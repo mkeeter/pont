@@ -18,6 +18,7 @@ lazy_static = "*"
 [dependencies.web-sys]
 version = "*"
 features = [
+  'AddEventListenerOptions',
   'Blob',
   'console',
   'Document',
