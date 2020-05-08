@@ -219,6 +219,10 @@ div#exchange_div {
     top: calc(100%);
     left: 0%;
     transform: translateY(-100%) translateX(178%);
+
+    -webkit-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
 }
 div#exchange_div.disabled {
     color: var(--dark4);
