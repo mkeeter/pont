@@ -1690,5 +1690,8 @@ fn start(text: JsValue) -> JsError {
     let base = Base { doc, ws };
     *HANDLE.lock().unwrap() = State::Connecting(Connecting { base });
 
+    console_log!("{}", env!("VERGEN_BUILD_TIMESTAMP"));
+    console_log!("{}", env!("VERGEN_SHA_SHORT"));
+
     Ok(())
 }

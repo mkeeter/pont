@@ -3,6 +3,7 @@ name = "pont-client"
 version = "0.1.0"
 authors = ["Matt Keeter"]
 edition = "2018"
+build = "build.rs"
 
 [lib]
 crate-type = ["cdylib"]
@@ -49,3 +50,6 @@ features = [
   'WebSocket',
   'Window',
 ]
+
+[build-dependencies]
+vergen = "3"
