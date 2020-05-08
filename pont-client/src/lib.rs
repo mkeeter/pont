@@ -1687,11 +1687,13 @@ fn start(text: JsValue) -> JsError {
         Ok(())
     }).forget();
 
+    let rev = doc.get_element_by_id("revhash")
+        .expect("Could not find rev");
+    rev.set_text_content(Some(env!("VERGEN_SHA_SHORT")));
+
     let base = Base { doc, ws };
     *HANDLE.lock().unwrap() = State::Connecting(Connecting { base });
 
-    console_log!("{}", env!("VERGEN_BUILD_TIMESTAMP"));
-    console_log!("{}", env!("VERGEN_SHA_SHORT"));
 
     Ok(())
 }

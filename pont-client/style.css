@@ -316,3 +316,9 @@ div#svg_div {
         grid-column: 3;
     }
 }
+
+div#footer p {
+    margin-bottom: 0;
+    margin-top: 0.5em;
+    color: var(--dark4);
+}
