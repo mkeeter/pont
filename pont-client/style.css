@@ -28,6 +28,11 @@ body {
     margin-right: 20px;
     background-color: var(--light1);
 }
+
+div.information {
+    font-size: 20px;
+}
+
 input {
     font-family: Inconsolata, "Courier New", monospace;
     font-size: 16px;

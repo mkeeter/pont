@@ -17,9 +17,18 @@
     </script>
 
     <!-- Initial UI just says "Loading..." -->
-    <div id="loading"><p>Loading...</p></div>
-
-    <div id="connecting" hidden=""><p>Connecting...</p></div>
+    <div id="loading" class="information">
+        <p><i class="fas fa-download"></i> Loading...</p>
+    </div>
+    <div id="connecting" hidden="" class="information">
+        <p><i class="fas fa-server"></i> Connecting...</p>
+    </div>
+    <div id="disconnected" hidden="" class="information">
+        <p><i class="fas fa-exclamation-triangle"></i>
+            <span id="disconnected_msg">Could not connect to game server</span>
+        </p>
+        <p>Please refresh the page to try again</p>
+    </div>
 
     <!-- UI while joining the game -->
     <div id="join" hidden="">
@@ -76,13 +85,6 @@
                 </div>
             </div>
         </div>
-    </div>
-
-    <div id="disconnected" hidden="">
-        <p><i class="fas fa-exclamation-triangle"></i>
-            <span id="disconnected_msg">Could not connect to game server</span>
-        </p>
-        <p>Please refresh the page to try again</p>
     </div>
 
     <div id="footer">
