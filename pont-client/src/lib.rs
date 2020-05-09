@@ -64,7 +64,7 @@ macro_rules! methods {
         fn $name(&mut self, $($var: $type),* ) -> JsError {
             match self {
                 State::$sub(s) => s.$name($($var),*),
-                _ => panic!("Invalid state"),
+                _ => panic!("Invalid state transition"),
             }
         }
         )+)+
