@@ -7,6 +7,7 @@ curl -X POST -s --data-urlencode 'input@style.css' https://cssminifier.com/raw >
 curl -X POST -s --data-urlencode 'input@pkg/pont_client.js' https://javascript-minifier.com/raw > deploy/pkg/pont_client.js
 curl -X POST -s --data-urlencode 'input@index.html' https://html-minifier.com/raw > deploy/index.html
 cp pkg/pont_client_bg.wasm deploy/pkg
+cp .htaccess deploy/
 
 cat << EOF > deploy/files.txt
 .htaccess
