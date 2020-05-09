@@ -194,7 +194,9 @@ impl Room {
             self.broadcast(ServerMessage::PlayerDisconnected(p));
 
             // Find the next active player and broadcast out that info
-            self.next_player();
+            if p == self.active_player {
+                self.next_player();
+            }
         } else {
             error!("[{}] Tried to remove non-existent player at {}",
                      self.name, addr);
