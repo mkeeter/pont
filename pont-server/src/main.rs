@@ -191,6 +191,12 @@ impl Room {
             info!("[{}] Removed disconnected player '{}'",
                   self.name, player_name);
             self.players[p].ws = None;
+            for (k, v) in self.players[p].hand.drain() {
+                for _i in 0..v {
+                    self.game.bag.push(k.clone());
+                }
+            }
+            self.game.shuffle();
             self.broadcast(ServerMessage::PlayerDisconnected(p));
 
             // Find the next active player and broadcast out that info
@@ -477,7 +483,8 @@ async fn handle_connection(rooms: RoomList,
                 }
 
                 // Otherwise, here's the error handler
-                let msg = ServerMessage::UnknownRoom(room);
+                let msg = ServerMessage::JoinFailed(
+                    format!("Could not find room '{}'", room));
                 let encoded = bincode::serialize(&msg)
                     .expect("Could not encode message");
                 ws_stream.send(WebsocketMessage::Binary(encoded)).await

@@ -1103,7 +1103,7 @@ impl State {
             on_room_name_invalid(),
             on_join_inputs_changed(),
             on_join_button(),
-            on_unknown_room(room: &str),
+            on_join_failed(room: &str),
         ],
     );
 }
@@ -1207,9 +1207,8 @@ impl CreateOrJoin {
         })
     }
 
-    fn on_unknown_room(&self, room: &str) -> JsError {
-        let err = format!("Could not find room '{}'", room);
-        self.err_span.set_text_content(Some(&err));
+    fn on_join_failed(&self, err: &str) -> JsError {
+        self.err_span.set_text_content(Some(err));
         self.err_div.set_hidden(false);
         self.play_button.set_disabled(false);
         Ok(())
@@ -1581,7 +1580,7 @@ fn on_message(msg: ServerMessage) -> JsError {
     let mut state = HANDLE.lock().unwrap();
 
     match msg {
-        UnknownRoom(name) => state.on_unknown_room(&name),
+        JoinFailed(name) => state.on_join_failed(&name),
         JoinedRoom{room_name, players, active_player,
                    board, pieces, remaining} =>
             state.on_joined_room(&room_name, &players, active_player,

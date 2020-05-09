@@ -25,7 +25,7 @@ pub enum ServerMessage {
         pieces: Vec<Piece>,
         remaining: usize,
     },
-    UnknownRoom(String),
+    JoinFailed(String),
     Chat {
         from: String,
         message: String,
@@ -110,6 +110,10 @@ impl Game {
             }
         }
         Some(score as u32)
+    }
+
+    pub fn shuffle(&mut self) {
+        self.bag.shuffle(&mut thread_rng());
     }
 
     pub fn new() -> Game {
