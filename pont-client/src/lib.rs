@@ -1147,6 +1147,10 @@ impl Connecting {
             .expect("Could not get connecting div")
             .dyn_into::<HtmlElement>()?
             .set_hidden(true);
+        self.base.doc.get_element_by_id("disconnected_msg")
+            .expect("Could not get disconnected_msg div")
+            .dyn_into::<HtmlElement>()?
+            .set_text_content(Some("Lost connection to game server"));
         self.base.doc.get_element_by_id("join")
             .expect("Could not get join div")
             .dyn_into::<HtmlElement>()?
@@ -1681,11 +1685,24 @@ fn start(text: JsValue) -> JsError {
         fr.read_as_array_buffer(&blob)?;
         Ok(())
     }).forget();
-
     set_event_cb(&ws, "close", move |_: Event| -> JsError {
-        console_log!("Socket closed");
+        let doc = web_sys::window()
+            .expect("no global `window` exists")
+            .document()
+            .expect("should have a document on window");
+        for d in ["loading", "connecting", "join", "playing"].iter() {
+            doc.get_element_by_id(d)
+                .expect("Could not get major div")
+                .dyn_into::<HtmlElement>()?
+                .set_hidden(true);
+        }
+        doc.get_element_by_id("disconnected")
+            .expect("Could not get disconnected div")
+            .dyn_into::<HtmlElement>()?
+            .set_hidden(false);
         Ok(())
     }).forget();
+
 
     let rev = doc.get_element_by_id("revhash")
         .expect("Could not find rev");
@@ -1693,13 +1710,14 @@ fn start(text: JsValue) -> JsError {
 
     let base = Base { doc, ws };
     base.doc.get_element_by_id("loading")
-        .expect("Could not get connecting div")
+        .expect("Could not get loading div")
         .dyn_into::<HtmlElement>()?
         .set_hidden(true);
     base.doc.get_element_by_id("connecting")
         .expect("Could not get connecting div")
         .dyn_into::<HtmlElement>()?
         .set_hidden(false);
+
     *HANDLE.lock().unwrap() = State::Connecting(Connecting { base });
 
 
