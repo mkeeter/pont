@@ -1692,6 +1692,14 @@ fn start(text: JsValue) -> JsError {
     rev.set_text_content(Some(env!("VERGEN_SHA_SHORT")));
 
     let base = Base { doc, ws };
+    base.doc.get_element_by_id("loading")
+        .expect("Could not get connecting div")
+        .dyn_into::<HtmlElement>()?
+        .set_hidden(true);
+    base.doc.get_element_by_id("connecting")
+        .expect("Could not get connecting div")
+        .dyn_into::<HtmlElement>()?
+        .set_hidden(false);
     *HANDLE.lock().unwrap() = State::Connecting(Connecting { base });
 
 

@@ -9,6 +9,7 @@ curl -X POST -s --data-urlencode 'input@index.html' https://html-minifier.com/ra
 cp pkg/pont_client_bg.wasm deploy/pkg
 
 cat << EOF > deploy/files.txt
+.htaccess
 index.html
 style.css
 pkg/pont_client.js
