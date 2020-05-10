@@ -136,6 +136,10 @@ impl Player {
     fn hand_is_empty(&self) -> bool {
         self.hand.values().all(|i| *i == 0)
     }
+
+    fn hand_size(&self) -> usize {
+        self.hand.values().sum::<usize>()
+    }
 }
 
 impl Room {
@@ -312,9 +316,8 @@ impl Room {
         if let Some(mut delta) = self.game.play(pieces) {
             // Broadcast the new score to all players
             let mut deal = Vec::new();
-            for (piece, count) in self.game.deal(pieces.len()) {
-                *player.hand.entry(piece)
-                    .or_insert(0) += count;
+            for (piece, count) in self.game.deal(6 - player.hand_size()) {
+                *player.hand.entry(piece).or_insert(0) += count;
                 for _i in 0..count {
                     deal.push(piece);
                 }
