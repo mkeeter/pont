@@ -61,8 +61,8 @@ impl RoomHandle {
             room.name.clone()
         };
 
-        // Messages from every websocket are asynchronously
-        // forwarded to the room's MPSC queue
+        // Messages from every player's websocket are asynchronously
+        // forwarded to the room's MPSC queue in a standalone task.
         let write = self.write.clone();
         Task::spawn(async move {
             let result = outgoing.map(|m|
@@ -186,15 +186,15 @@ impl Room {
                   ws: SplitSink<WebSocketStream<Async<TcpStream>>, WebsocketMessage>)
         -> Result<()>
     {
-        // Add the new player to the scoreboard
-        self.broadcast(ServerMessage::NewPlayer(player_name.clone()));
-
-        // Store an UnboundedSender so we can write to websockets
-        // without an async call, with messages being passed to
-        // the actual socket by another worker task.
+        // Messages to the player's websocket are mediated by a queue,
+        // with a separate async task reading messages from the queue
+        // and pushing them down the websocket.  This lets us send messages to
+        // a player without blocking or needing an extra await in the
+        // main game loop, which would get awkward.
         let (ws_tx, ws_rx) = unbounded();
         {
             let room_name = self.name.clone();
+            let player_name = player_name.clone();
             Task::spawn(async move {
                 let result = ws_rx
                     .map(|c| bincode::serialize(&c)
@@ -204,13 +204,13 @@ impl Room {
                     .forward(ws)
                     .await;
                 if let Err(e) = result {
-                    error!("[{}] Got error {} from player", room_name, e);
+                    error!("[{}] Got error {} from player {}'s queue",
+                           room_name, e, player_name);
                 }
             }).detach();
         }
 
-        // Add the new player to the active list of connections and players
-        self.connections.insert(addr, self.players.len());
+        // Pick out a hand for our new player
         let hand = self.game.deal(6);
         let mut pieces = Vec::new();
         for (piece, count) in hand.iter() {
@@ -218,12 +218,40 @@ impl Room {
                 pieces.push(piece.clone());
             }
         }
-        self.players.push(Player {
-            name: player_name,
-            score: 0,
-            hand,
-            ws: Some(ws_tx.clone()) });
 
+        // Check whether the new player's name matches an old name of someone
+        // that has disconnected.  If so, we can take their seat.
+        let mut player_index = None;
+        for (i, p) in self.players.iter().enumerate() {
+            if p.name == player_name && p.ws.is_none() {
+                player_index = Some(i);
+                break;
+            }
+        }
+
+        if let Some(i) = player_index {
+            // Reclaim the player's spot
+            self.broadcast(ServerMessage::PlayerReconnected(i));
+            self.players[i].hand = hand;
+            self.players[i].ws = Some(ws_tx.clone());
+        } else {
+            self.broadcast(ServerMessage::NewPlayer(player_name.clone()));
+            player_index = Some(self.players.len());
+
+            self.players.push(Player {
+                name: player_name,
+                score: 0,
+                hand,
+                ws: Some(ws_tx.clone()) });
+        }
+
+        // At this point, the option must be assigned, so we unwrap it
+        let player_index = player_index.unwrap();
+
+        // Add the new player to the active list of connections and players
+        self.connections.insert(addr, player_index);
+
+        // The game counts as started once the first player joins
         self.started = true;
 
         // Tell the player that they have joined the room
@@ -233,6 +261,7 @@ impl Room {
                     .map(|p| (p.name.clone(), p.score, p.ws.is_some()))
                     .collect(),
                 active_player: self.active_player,
+                player_index,
                 board: self.game.board.iter()
                     .map(|(k, v)| (*k, *v))
                     .collect(),
@@ -495,6 +524,9 @@ async fn handle_connection(rooms: RoomList,
         // Try to interpret their message as joining a room
         match msg {
             ClientMessage::CreateRoom(name) => {
+                // Log to link address and player name
+                info!("[{}] Player {} sent CreateRoom", addr, name);
+
                 // Pick a new room name and insert it into the global hashmap
                 let map = &mut rooms.lock().unwrap();
                 let (pipe, room_name, mut handle) = new_room(map);
@@ -516,6 +548,10 @@ async fn handle_connection(rooms: RoomList,
                 return Ok(());
             },
             ClientMessage::JoinRoom(name, room_name) => {
+                // Log to link address and player name
+                info!("[{}] Player {} sent JoinRoom({})",
+                      addr, name, room_name);
+
                 // If the room name is valid, then join it by passing
                 // the new user and their connection into the room task
                 //

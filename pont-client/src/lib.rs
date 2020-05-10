@@ -1094,7 +1094,8 @@ impl State {
         ],
         CreateOrJoin => [
             on_joined_room(room_name: &str, players: &[(String, u32, bool)],
-                           active_players: usize,
+                           active_player: usize,
+                           player_index: usize,
                            board: &[((i32, i32), Piece)],
                            pieces: &[Piece]) -> Playing,
         ],
@@ -1116,6 +1117,7 @@ impl State {
             on_information(msg: &str),
             on_new_player(name: &str),
             on_player_disconnected(index: usize),
+            on_player_reconnected(index: usize),
             on_player_turn(active_player: usize),
             on_played(pieces: &[(Piece, i32, i32)]),
             on_swapped(count: usize),
@@ -1241,7 +1243,8 @@ impl CreateOrJoin {
     }
 
     fn on_joined_room(self, room_name: &str, players: &[(String, u32, bool)],
-                      active_player: usize, board: &[((i32, i32), Piece)],
+                      active_player: usize, player_index: usize,
+                      board: &[((i32, i32), Piece)],
                       pieces: &[Piece]) -> JsResult<Playing>
     {
         self.base.doc.get_element_by_id("join")
@@ -1254,7 +1257,8 @@ impl CreateOrJoin {
             .set_hidden(false);
 
         let mut p = Playing::new(self.base, room_name, players,
-                                 active_player, board, pieces)?;
+                                 active_player, player_index,
+                                 board, pieces)?;
         p.on_information(&format!("Welcome, {}!", players.last().unwrap().0))?;
         p.on_player_turn(active_player)?;
         Ok(p)
@@ -1293,11 +1297,10 @@ impl CreateOrJoin {
 
 impl Playing {
     fn new(base: Base, room_name: &str, players: &[(String, u32, bool)],
-           active_player: usize, in_board: &[((i32, i32), Piece)],
+           active_player: usize, player_index: usize,
+           in_board: &[((i32, i32), Piece)],
            pieces: &[Piece]) -> JsResult<Playing>
     {
-        let player_index = players.len() - 1;
-
         // The title lists the room name
         let s: HtmlElement = base.doc.get_element_by_id("room_name")
             .expect("Could not get room_name")
@@ -1451,6 +1454,16 @@ impl Playing {
             .dyn_into::<HtmlElement>()?;
         c.class_list().add_1("disconnected")?;
         self.on_information(&format!("{} disconnected",
+                                     self.player_names[index]))
+    }
+
+    fn on_player_reconnected(&self, index: usize) -> JsError {
+        let c = self.score_table.child_nodes()
+            .item((index + 3) as u32)
+            .unwrap()
+            .dyn_into::<HtmlElement>()?;
+        c.class_list().remove_1("disconnected")?;
+        self.on_information(&format!("{} reconnected",
                                      self.player_names[index]))
     }
 
@@ -1611,13 +1624,15 @@ fn on_message(msg: ServerMessage) -> JsError {
 
     match msg {
         JoinFailed(name) => state.on_join_failed(&name),
-        JoinedRoom{room_name, players, active_player, board, pieces} =>
-            state.on_joined_room(&room_name, &players, active_player,
+        JoinedRoom{room_name, players, active_player, player_index, board, pieces} =>
+            state.on_joined_room(&room_name, &players,
+                                 active_player, player_index,
                                  &board, &pieces),
         Chat{from, message} => state.on_chat(&from, &message),
         Information(message) => state.on_information(&message),
         NewPlayer(name) => state.on_new_player(&name),
         PlayerDisconnected(index) => state.on_player_disconnected(index),
+        PlayerReconnected(index) => state.on_player_reconnected(index),
         PlayerTurn(active_player) => state.on_player_turn(active_player),
         PiecesRemaining(remaining) => state.on_pieces_remaining(remaining),
         Played(pieces) => state.on_played(&pieces),
