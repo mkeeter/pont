@@ -5,16 +5,14 @@ authors = ["Matt Keeter <matt.j.keeter@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-tokio-tungstenite = "*"
+async-tungstenite = "*"
 tungstenite = "*"
 futures = "0.3.4"
 pont-common = { path = "../pont-common" }
 bincode = "*"
 rand = "^0.7"
 env_logger = "0.7.1"
+num_cpus = "1.13.0"
 log = "*"
 lazy_static = "*"
-
-[dependencies.tokio]
-version = "*"
-features = ["macros", "net", "rt-threaded"]
+smol = "*"

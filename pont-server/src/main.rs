@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     env,
     io::Error as IoError,
-    net::SocketAddr,
+    net::{TcpStream, TcpListener, SocketAddr},
     sync::{Arc, Mutex},
 };
 use rand::Rng;
@@ -14,9 +14,9 @@ use futures::stream::{StreamExt, SplitSink};
 use futures::sink::SinkExt;
 use futures::channel::mpsc::{unbounded, UnboundedSender, UnboundedReceiver};
 
-use tokio::net::{TcpListener, TcpStream};
-use tungstenite::protocol::Message as WebsocketMessage;
-use tokio_tungstenite::WebSocketStream;
+use tungstenite::Message as WebsocketMessage;
+use async_tungstenite::WebSocketStream;
+use smol::{Async, Task};
 
 use pont_common::{ClientMessage, ServerMessage, Game, Piece};
 
@@ -46,24 +46,26 @@ struct RoomHandle {
 
 impl RoomHandle {
     fn add_player(&mut self, name: String, addr: SocketAddr,
-                  ws_stream: WebSocketStream<TcpStream>)
+                  ws_stream: WebSocketStream<Async<TcpStream>>)
     {
         // Messages from every websocket are asynchronously
         // forwarded to the room's MPSC queue
         let (incoming, outgoing) = ws_stream.split();
-        tokio::spawn(outgoing.map(|m|
-            match m {
-                Ok(WebsocketMessage::Binary(t)) => Some(
-                    bincode::deserialize::<ClientMessage>(&t)
-                        .expect("Could not decode message")),
-                _ => None,
-            })
-            .take_while(|m| future::ready(m.is_some()))
-            .map(|m| m.unwrap())
-            .chain(futures::stream::once(async {
-                ClientMessage::Disconnected }))
-            .map(move |m| Ok((addr, m)))
-            .forward(self.write.clone()));
+        Task::spawn(outgoing.map(|m|
+                match m {
+                    Ok(WebsocketMessage::Binary(t)) => Some(
+                        bincode::deserialize::<ClientMessage>(&t)
+                            .expect("Could not decode message")),
+                    _ => None,
+                })
+                .take_while(|m| future::ready(m.is_some()))
+                .map(|m| m.unwrap())
+                .chain(futures::stream::once(async {
+                    ClientMessage::Disconnected }))
+                .map(move |m| Ok((addr, m)))
+                .forward(self.write.clone()))
+            .expect("Could not create task")
+            .detach();
 
         let room = &mut self.room.lock().unwrap();
         room.add_player(addr, name, incoming);
@@ -153,7 +155,7 @@ impl Room {
     }
 
     fn add_player(&mut self, addr: SocketAddr, player_name: String,
-                  ws: SplitSink<WebSocketStream<TcpStream>, WebsocketMessage>)
+                  ws: SplitSink<WebSocketStream<Async<TcpStream>>, WebsocketMessage>)
     {
         // Add the new player to the scoreboard
         self.broadcast(ServerMessage::NewPlayer(player_name.clone()));
@@ -162,12 +164,14 @@ impl Room {
         // without an async call, with messages being passed to
         // the actual socket by another worker task.
         let (ws_tx, ws_rx) = unbounded();
-        tokio::spawn(ws_rx
-            .map(|c| bincode::serialize(&c)
-                .expect(&format!("Could not encode {:?}", c)))
-            .map(WebsocketMessage::Binary)
-            .map(Ok)
-            .forward(ws));
+        Task::spawn(ws_rx
+                .map(|c| bincode::serialize(&c)
+                    .expect(&format!("Could not encode {:?}", c)))
+                .map(WebsocketMessage::Binary)
+                .map(Ok)
+                .forward(ws))
+            .expect("Could not create encoding task")
+            .detach();
 
         // Add the new player to the active list of connections and players
         self.connections.insert(addr, self.players.len());
@@ -426,13 +430,13 @@ fn new_room(rooms: &mut HashMap<String, RoomHandle>) ->
 }
 
 async fn handle_connection(rooms: RoomList,
-                           raw_stream: TcpStream,
+                           raw_stream: Async<TcpStream>,
                            addr: SocketAddr,
                            mut close_room: UnboundedSender<String>)
 {
     info!("[{}] Incoming TCP connection", addr);
 
-    let mut ws_stream = tokio_tungstenite::accept_async(raw_stream)
+    let mut ws_stream = async_tungstenite::accept_async(raw_stream)
         .await
         .expect("Error during the websocket handshake occurred");
     info!("[{}] WebSocket connection established", addr);
@@ -453,12 +457,12 @@ async fn handle_connection(rooms: RoomList,
 
                 // This is the task which actually handles running
                 // each room, now that we've created it.
-                tokio::spawn(async move {
+                Task::spawn(async move {
                     run_room(handle, pipe).await;
                     info!("[{}] All players left, closing room.", room_name);
                     close_room.send(room_name).await
                         .expect("Could not close room");
-                });
+                }).detach();
 
                 // We've passed everything to the spawned room task,
                 // so we return right away (rather than handling more
@@ -514,10 +518,14 @@ async fn handle_connection(rooms: RoomList,
     info!("[{}] Dropping connection", addr);
 }
 
-#[tokio::main]
-async fn main() -> Result<(), IoError> {
+fn main() -> Result<(), IoError> {
     env_logger::from_env(Env::default().default_filter_or("pont_server=TRACE"))
         .init();
+
+    // Create an executor thread pool.
+    for _ in 0..num_cpus::get().max(1) {
+        std::thread::spawn(|| smol::run(future::pending::<()>()));
+    }
 
     let rooms = RoomList::new(Mutex::new(HashMap::new()));
 
@@ -527,12 +535,12 @@ async fn main() -> Result<(), IoError> {
     let close_room = {
         let (tx, mut rx) = unbounded();
         let rooms = rooms.clone();
-        tokio::spawn(async move {
+        Task::spawn(async move {
             while let Some(r) = rx.next().await {
                 info!("Closing room [{}]", r);
                 rooms.lock().unwrap().remove(&r);
             }
-        });
+        }).detach();
         tx
     };
 
@@ -541,16 +549,19 @@ async fn main() -> Result<(), IoError> {
         .nth(1)
         .unwrap_or_else(|| "0.0.0.0:8080".to_string());
 
-    // Create the event loop and TCP listener we'll accept connections on.
-    let mut listener = TcpListener::bind(&addr).await
-        .expect("Failed to bind");
-    info!("Listening on: {}", addr);
+    smol::block_on(async {
+        // Create the event loop and TCP listener we'll accept connections on.
+        info!("Listening on: {}", addr);
+        let listener = Async::<TcpListener>::bind(addr)
+            .expect("Could not create listener");
 
-    // The main loop accepts incoming connections asynchronously
-    while let Ok((stream, addr)) = listener.accept().await {
-        tokio::spawn(handle_connection(rooms.clone(), stream,
-                                       addr, close_room.clone()));
-    }
+        // The main loop accepts incoming connections asynchronously
+        while let Ok((stream, addr)) = listener.accept().await {
+            Task::spawn(handle_connection(rooms.clone(), stream,
+                                          addr, close_room.clone()))
+                .detach();
+        }
+    });
 
     Ok(())
 }
