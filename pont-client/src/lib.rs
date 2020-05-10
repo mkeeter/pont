@@ -1259,7 +1259,7 @@ impl CreateOrJoin {
         let mut p = Playing::new(self.base, room_name, players,
                                  active_player, player_index,
                                  board, pieces)?;
-        p.on_information(&format!("Welcome, {}!", players.last().unwrap().0))?;
+        p.on_information(&format!("Welcome, {}!", players[player_index].0))?;
         p.on_player_turn(active_player)?;
         Ok(p)
     }
