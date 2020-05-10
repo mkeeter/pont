@@ -581,7 +581,7 @@ impl Board {
         }
         let mut invalid = Game::invalid(&b);
         if !Game::is_linear(&self.tentative.keys().cloned().collect()) {
-            for (pos, _index) in &self.tentative {
+            for pos in self.tentative.keys() {
                 invalid.insert(*pos);
             }
         }
@@ -860,7 +860,7 @@ impl Board {
             std::mem::swap(&mut self.tentative, &mut tiles);
             // Take every active tile and free them from the tile grid,
             // adjusting their transform so they don't move at all
-            for (_, i) in &tiles {
+            for i in tiles.values() {
                 let t = &self.hand[*i].1;
                 self.pan_group.remove_child(t)?;
                 t.class_list().remove_1("invalid")?;
@@ -934,12 +934,12 @@ impl Board {
 
         if !self.tentative.is_empty() {
             Ok(Move::Place(self.tentative.iter()
-                .map(|((x, y), i)| (self.hand[*i].0.clone(), *x, *y))
+                .map(|((x, y), i)| (self.hand[*i].0, *x, *y))
                 .collect()))
         } else {
             assert!(!self.exchange_list.is_empty());
             Ok(Move::Swap(self.exchange_list.iter()
-                .map(|i| self.hand[*i].0.clone())
+                .map(|i| self.hand[*i].0)
                 .collect()))
         }
     }
@@ -984,7 +984,7 @@ impl Board {
             let x = self.hand.len() as f32 * 15.0 + 5.0;
             let target = self.add_hand(*d)?;
             anims.push(TileAnimation {
-                target: target,
+                target,
                 start: (x, 220.0),
                 end: (x, 185.0),
                 t0

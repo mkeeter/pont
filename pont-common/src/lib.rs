@@ -76,10 +76,10 @@ pub struct Game {
 impl Game {
     pub fn play(&mut self, ps: &[(Piece, i32, i32)]) -> Option<u32> {
         for (p, x, y) in ps {
-            if self.board.contains_key(&(*x, *y)) {
-                return None;
-            } else {
-                self.board.insert((*x, *y), *p);
+            use std::collections::hash_map::Entry;
+            match self.board.entry((*x, *y)) {
+                Entry::Occupied(_) => return None,
+                Entry::Vacant(v) => { v.insert(*p); }
             }
         }
         let mut score = 0;
@@ -186,7 +186,7 @@ impl Game {
             x_positions.insert(x);
             y_positions.insert(y);
         }
-        return x_positions.len() == 1 || y_positions.len() == 1;
+        x_positions.len() == 1 || y_positions.len() == 1
     }
 
     fn explore_from<T>(board: &HashMap<(i32, i32), Piece>, f: T)

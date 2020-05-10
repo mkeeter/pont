@@ -186,7 +186,7 @@ impl Room {
             Task::spawn(async move {
                 let result = ws_rx
                     .map(|c| bincode::serialize(&c)
-                        .expect(&format!("Could not encode {:?}", c)))
+                        .unwrap_or_else(|_| panic!("Could not encode {:?}", c)))
                     .map(WebsocketMessage::Binary)
                     .map(Ok)
                     .forward(ws)
@@ -340,7 +340,6 @@ impl Room {
             warn!("[{}] Player {} tried to play an unowned piece",
                   self.name, player.name);
             self.send(self.active_player, ServerMessage::MoveRejected);
-            return;
         } else if let Some(deal) = self.game.swap(pieces) {
             for piece in deal.iter() {
                 *player.hand.entry(*piece).or_insert(0) += 1;
