@@ -51,9 +51,18 @@ impl RoomHandle {
                   ws_stream: WebSocketStream<Async<TcpStream>>)
         -> Result<()>
     {
+        let (incoming, outgoing) = ws_stream.split();
+
+        // Add the player to the room, storing the room name while we have a
+        // lock to print in error messages later.
+        let room_name = {
+            let room = &mut self.room.lock().unwrap();
+            room.add_player(addr, name, incoming)?;
+            room.name.clone()
+        };
+
         // Messages from every websocket are asynchronously
         // forwarded to the room's MPSC queue
-        let (incoming, outgoing) = ws_stream.split();
         let write = self.write.clone();
         Task::spawn(async move {
             let result = outgoing.map(|m|
@@ -70,12 +79,11 @@ impl RoomHandle {
                 .forward(write)
                 .await;
             if let Err(e) = result {
-                error!("[{}]: Got error {:?}", "omg", e);
+                error!("[{}]: Got error {:?}", room_name, e);
             }
         }).detach();
 
-        let room = &mut self.room.lock().unwrap();
-        room.add_player(addr, name, incoming)
+        Ok(())
     }
 }
 
