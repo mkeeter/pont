@@ -15,6 +15,7 @@ num_cpus = "1.13.0"
 log = "*"
 lazy_static = "*"
 smol = "*"
+anyhow = "*"
 
 [dependencies.tungstenite]
 version = "*"
