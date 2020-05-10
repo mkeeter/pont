@@ -197,7 +197,7 @@ pub struct Board {
 }
 
 impl Board {
-    fn new(doc: &Document, pieces_remaining: usize)
+    fn new(doc: &Document)
         -> JsResult<Board>
     {
         let pan_rect = doc.get_element_by_id("pan_rect")
@@ -282,7 +282,7 @@ impl Board {
             accept_button,
             reject_button,
             exchange_div,
-            pieces_remaining,
+            pieces_remaining: 0,
         };
 
         Ok(out)
@@ -290,16 +290,11 @@ impl Board {
 
     fn set_my_turn(&mut self, is_my_turn: bool) -> JsError {
         if is_my_turn {
-            if self.pieces_remaining > 1 {
-                self.exchange_div.class_list().remove_1("disabled")?;
-            } else {
-                self.exchange_div.set_inner_html("<p>No pieces<br>left in bag</p>");
-                self.exchange_div.class_list().add_1("disabled")?;
-            }
-            self.svg_div.class_list().remove_1("nyt")
+            self.svg_div.class_list().remove_1("nyt")?;
         } else {
-            self.svg_div.class_list().add_1("nyt")
+            self.svg_div.class_list().add_1("nyt")?;
         }
+        self.update_exchange_div(is_my_turn)
     }
 
     fn get_transform(e: &Element) -> Pos {
@@ -448,12 +443,10 @@ impl Board {
                                    &format!("translate({} {})", tx, ty))?;
             let hand_index = self.tentative.remove(&(x, y)).unwrap();
             if self.tentative.is_empty() {
-                if self.pieces_remaining > 0 {
-                    self.exchange_div.class_list().remove_1("disabled")?;
-                }
                 self.accept_button.set_disabled(true);
                 self.reject_button.set_disabled(true);
             }
+            self.update_exchange_div(true)?;
             self.mark_invalid()?;
             (hand_index, Some((x, y)))
         };
@@ -640,19 +633,15 @@ impl Board {
                 },
                 DropTarget::Exchange => {
                     self.exchange_list.push(d.hand_index);
-                    let n = self.exchange_list.len();
-                    self.exchange_div.set_inner_html(
-                        &format!("<p>Swap {} piece{}{}</p>",
-                                 n, if n > 1 { "s" } else { " " },
-                                 if n == self.pieces_remaining { " (max)" }
-                                 else { "" }));
                     d.target.set_attribute("visibility", "hidden")?;
+                    self.update_exchange_div(true)?;
                     self.accept_button.set_disabled(false);
                     self.reject_button.set_disabled(false);
                     DragState::Idle
                 },
             };
             self.mark_invalid()?;
+            self.update_exchange_div(true)?;
             if self.drag != DragState::Idle {
                 self.request_animation_frame()?;
             }
@@ -670,7 +659,6 @@ impl Board {
                     self.drag = DragState::Idle;
                     self.accept_button.set_disabled(!self.mark_invalid()?);
                     self.reject_button.set_disabled(false);
-                    self.exchange_div.class_list().add_1("disabled")?;
                 }
             },
             DragState::ReturnToHand(d) => {
@@ -697,9 +685,7 @@ impl Board {
                     self.drag = DragState::Idle;
                     self.accept_button.set_disabled(true);
                     self.reject_button.set_disabled(true);
-                    if self.pieces_remaining > 0 {
-                        self.exchange_div.class_list().remove_1("disabled")?;
-                    }
+                    self.update_exchange_div(true)?;
                 }
             },
             DragState::ConsolidateHand(ConsolidateHand(d)) |
@@ -897,11 +883,7 @@ impl Board {
                         })
                     })
                     .collect::<JsResult<Vec<TileAnimation>>>()?));
-            if self.pieces_remaining > 0 {
-                self.exchange_div.set_inner_html(
-                    "<p>Drop here to<br>swap pieces</p>");
-                self.exchange_div.class_list().remove_1("disabled")?;
-            }
+            self.update_exchange_div(true)?;
         }
 
         if self.drag != DragState::Idle {
@@ -925,10 +907,6 @@ impl Board {
         // but we'll let the server tell us that.
         self.accept_button.set_disabled(true);
         self.reject_button.set_disabled(true);
-        if self.pieces_remaining > 0 {
-            self.exchange_div.set_inner_html(
-                "<p>Drop here to<br>swap pieces</p>");
-        }
 
         self.set_my_turn(false)?;
 
@@ -993,6 +971,54 @@ impl Board {
         self.drag = DragState::ConsolidateHand(ConsolidateHand(anims));
         self.request_animation_frame()?;
 
+        Ok(())
+    }
+
+    fn update_exchange_div(&mut self, my_turn: bool) -> JsError {
+        // Special case: if a new user joins while we've got pieces staged
+        // to swap, then it's possible that we won't have enough to swap,
+        // so we cancel the swap.
+        if self.pieces_remaining < self.exchange_list.len() {
+            // This will call update_exchange_div again, so we don't
+            // need to run any of the code below.
+            return self.on_reject_button(Event::new("dummy")?);
+        }
+
+        // If there are no pieces remaining, then the box is always disabled
+        if self.pieces_remaining == 0 {
+            self.exchange_div.set_inner_html("<p>No pieces<br>left in bag</p>");
+            self.exchange_div.class_list().add_1("disabled")?;
+            return Ok(());
+        }
+
+        // If it's not your turn, then we disable the box but leave the normal
+        // text (because we know that there are pieces remaining).
+        if !my_turn {
+            self.exchange_div.set_inner_html("<p>Drag here<br>to swap</p>");
+            self.exchange_div.class_list().add_1("disabled")?;
+            return Ok(());
+        }
+
+        // If it's our turn and there are pieces staged in the grid, then we
+        // disable the swapping box.
+        if !self.tentative.is_empty() {
+            self.exchange_div.set_inner_html("<p>Drag here<br>to swap</p>");
+            self.exchange_div.class_list().add_1("disabled")?;
+            return Ok(());
+        }
+
+        // Otherwise, the box is enabled and we have appropriate text
+        self.exchange_div.class_list().remove_1("disabled")?;
+        let n = self.exchange_list.len();
+        if n == 0 {
+            self.exchange_div.set_inner_html("<p>Drag here<br>to swap</p>");
+        } else {
+            self.exchange_div.set_inner_html(
+                &format!("<p>Swap {} piece{}{}</p>",
+                         n, if n > 1 { "s" } else { " " },
+                         if n == self.pieces_remaining { " (max)" }
+                         else { "" }));
+        }
         Ok(())
     }
 
@@ -1070,8 +1096,7 @@ impl State {
             on_joined_room(room_name: &str, players: &[(String, u32, bool)],
                            active_players: usize,
                            board: &[((i32, i32), Piece)],
-                           pieces: &[Piece],
-                           remaining: usize) -> Playing,
+                           pieces: &[Piece]) -> Playing,
         ],
     );
 
@@ -1091,11 +1116,12 @@ impl State {
             on_information(msg: &str),
             on_new_player(name: &str),
             on_player_disconnected(index: usize),
-            on_player_turn(active_player: usize, remaining: usize),
+            on_player_turn(active_player: usize),
             on_played(pieces: &[(Piece, i32, i32)]),
             on_swapped(count: usize),
             on_move_accepted(dealt: &[Piece]),
             on_move_rejected(),
+            on_pieces_remaining(remaining: usize),
             on_player_score(delta: u32, total: u32),
             on_finished(winner: usize),
         ],
@@ -1216,7 +1242,7 @@ impl CreateOrJoin {
 
     fn on_joined_room(self, room_name: &str, players: &[(String, u32, bool)],
                       active_player: usize, board: &[((i32, i32), Piece)],
-                      pieces: &[Piece], remaining: usize) -> JsResult<Playing>
+                      pieces: &[Piece]) -> JsResult<Playing>
     {
         self.base.doc.get_element_by_id("join")
             .expect("Could not get join div")
@@ -1228,9 +1254,9 @@ impl CreateOrJoin {
             .set_hidden(false);
 
         let mut p = Playing::new(self.base, room_name, players,
-                                 active_player, board, pieces, remaining)?;
+                                 active_player, board, pieces)?;
         p.on_information(&format!("Welcome, {}!", players.last().unwrap().0))?;
-        p.on_player_turn(active_player, remaining)?;
+        p.on_player_turn(active_player)?;
         Ok(p)
     }
 
@@ -1268,7 +1294,7 @@ impl CreateOrJoin {
 impl Playing {
     fn new(base: Base, room_name: &str, players: &[(String, u32, bool)],
            active_player: usize, in_board: &[((i32, i32), Piece)],
-           pieces: &[Piece], remaining: usize) -> JsResult<Playing>
+           pieces: &[Piece]) -> JsResult<Playing>
     {
         let player_index = players.len() - 1;
 
@@ -1278,7 +1304,7 @@ impl Playing {
             .dyn_into()?;
         s.set_text_content(Some(&room_name));
 
-        let board = Board::new(&base.doc, remaining)?;
+        let board = Board::new(&base.doc)?;
 
         let b = base.doc.get_element_by_id("chat_name")
             .expect("Could not get chat_name");
@@ -1428,7 +1454,7 @@ impl Playing {
                                      self.player_names[index]))
     }
 
-    fn on_player_turn(&mut self, active_player: usize, remaining: usize)
+    fn on_player_turn(&mut self, active_player: usize)
         -> JsError
     {
         let children = self.score_table.child_nodes();
@@ -1440,7 +1466,6 @@ impl Playing {
             .remove_1("active")?;
 
         self.active_player = active_player;
-        self.board.pieces_remaining = remaining;
         children
             .item((self.active_player + 3) as u32)
             .unwrap()
@@ -1568,6 +1593,11 @@ impl Playing {
                 self.player_names[winner]))
         }
     }
+
+    fn on_pieces_remaining(&mut self, remaining: usize) -> JsError {
+        self.board.pieces_remaining = remaining;
+        self.board.update_exchange_div(self.active_player == self.player_index)
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1581,16 +1611,15 @@ fn on_message(msg: ServerMessage) -> JsError {
 
     match msg {
         JoinFailed(name) => state.on_join_failed(&name),
-        JoinedRoom{room_name, players, active_player,
-                   board, pieces, remaining} =>
+        JoinedRoom{room_name, players, active_player, board, pieces} =>
             state.on_joined_room(&room_name, &players, active_player,
-                                 &board, &pieces, remaining),
+                                 &board, &pieces),
         Chat{from, message} => state.on_chat(&from, &message),
         Information(message) => state.on_information(&message),
         NewPlayer(name) => state.on_new_player(&name),
         PlayerDisconnected(index) => state.on_player_disconnected(index),
-        PlayerTurn(active_player, remaining) =>
-            state.on_player_turn(active_player, remaining),
+        PlayerTurn(active_player) => state.on_player_turn(active_player),
+        PiecesRemaining(remaining) => state.on_pieces_remaining(remaining),
         Played(pieces) => state.on_played(&pieces),
         Swapped(count) => state.on_swapped(count),
         MoveAccepted(dealt) => state.on_move_accepted(&dealt),

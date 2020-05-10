@@ -233,7 +233,11 @@ impl Room {
                     .map(|(k, v)| (*k, *v))
                     .collect(),
                 pieces,
-                remaining: self.game.bag.len()})?;
+            })?;
+
+        // Because we've removed pieces from the bag, update the
+        // pieces remaining that clients know about.
+        self.broadcast(ServerMessage::PiecesRemaining(self.game.bag.len()));
         Ok(())
     }
 
@@ -248,8 +252,7 @@ impl Room {
             info!("[{}] Active player changed to {}", self.name,
                   self.players[self.active_player].name);
 
-            self.broadcast(ServerMessage::PlayerTurn(self.active_player,
-                                                     self.game.bag.len()));
+            self.broadcast(ServerMessage::PlayerTurn(self.active_player));
         }
     }
 
@@ -266,6 +269,9 @@ impl Room {
             }
             self.game.shuffle();
             self.broadcast(ServerMessage::PlayerDisconnected(p));
+
+            // We've put pieces back in the bag, so update the piece count
+            self.broadcast(ServerMessage::PiecesRemaining(self.game.bag.len()));
 
             // Find the next active player and broadcast out that info
             if p == self.active_player {
@@ -321,7 +327,8 @@ impl Room {
             player.score += delta;
 
             let total = player.score; // Release the borrow of player
-            self.broadcast(ServerMessage::PlayerScore { delta, total, });
+            self.broadcast(ServerMessage::PlayerScore { delta, total });
+            self.broadcast(ServerMessage::PiecesRemaining(self.game.bag.len()));
             self.send(self.active_player, ServerMessage::MoveAccepted(deal));
 
             // Broadcast the play to other players
@@ -355,6 +362,8 @@ impl Room {
             self.send(self.active_player, ServerMessage::MoveAccepted(deal));
 
             // Broadcast the swap to other players
+            // This doesn't change piece count, so we don't need to broadcast
+            // PiecesRemaining to the players.
             self.broadcast(ServerMessage::Swapped(pieces.len()));
         } else {
             warn!("[{}] Player {} couldn't be dealt {} pieces",
@@ -512,7 +521,7 @@ async fn handle_connection(rooms: RoomList,
                 // If we tried to join an existing room, then check that there
                 // are enough pieces in the bag to deal a full hand.
                 if let Some(mut h) = handle {
-                    if h.room.lock().unwrap().game.bag.len() >= 6 {
+                    if h.room.lock().unwrap().game.bag.len() > 0 {
                         // Happy case: add the player to the room, then return
                         // (because the connection will be handled by the room's
                         // task from here on out).

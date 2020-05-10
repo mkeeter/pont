@@ -23,7 +23,6 @@ pub enum ServerMessage {
         active_player: usize,
         board: Vec<((i32, i32), Piece)>,
         pieces: Vec<Piece>,
-        remaining: usize,
     },
     JoinFailed(String),
     Chat {
@@ -33,7 +32,7 @@ pub enum ServerMessage {
     Information(String),
     NewPlayer(String),
     PlayerDisconnected(usize),
-    PlayerTurn(usize, usize),
+    PlayerTurn(usize),
     Played(Vec<(Piece, i32, i32)>),
     Swapped(usize),
     MoveAccepted(Vec<Piece>),
@@ -42,6 +41,7 @@ pub enum ServerMessage {
         delta: u32,
         total: u32,
     },
+    PiecesRemaining(usize),
     ItsOver(usize),
 }
 
