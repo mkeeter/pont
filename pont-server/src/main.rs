@@ -376,7 +376,10 @@ impl Room {
     }
 
     fn on_message(&mut self, addr: SocketAddr, msg: ClientMessage) -> bool {
-        trace!("[{}] Got message {:?} from {}", self.name, msg, addr);
+        trace!("[{}] Got message {:?} from {}", self.name, msg,
+                self.connections.get(&addr)
+                    .map(|i| self.players[*i].name.clone())
+                    .unwrap_or_else(|| format!("unknown player at {}", addr)));
         match msg {
             ClientMessage::Disconnected => self.on_client_disconnected(addr),
             ClientMessage::Chat(c) => {
