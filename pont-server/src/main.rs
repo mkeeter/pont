@@ -4,6 +4,7 @@ use std::{
     io::Error as IoError,
     net::{TcpStream, TcpListener, SocketAddr},
     sync::{Arc, Mutex},
+    time::Duration,
 };
 use rand::Rng;
 use log::{error, info, trace, warn};
@@ -16,7 +17,7 @@ use futures::channel::mpsc::{unbounded, UnboundedSender, UnboundedReceiver};
 
 use tungstenite::Message as WebsocketMessage;
 use async_tungstenite::WebSocketStream;
-use smol::{Async, Task};
+use smol::{Async, Task, Timer};
 
 use pont_common::{ClientMessage, ServerMessage, Game, Piece};
 
@@ -543,6 +544,16 @@ fn main() -> Result<(), IoError> {
         }).detach();
         tx
     };
+
+    {   // Periodically print the number of open rooms to the logs
+        let rooms = rooms.clone();
+        Task::spawn(async move {
+            loop {
+                Timer::after(Duration::from_secs(60)).await;
+                info!("{} rooms open", rooms.lock().unwrap().len());
+            }
+        }).detach()
+    }
 
     // The target address + port is optionally specified on the command line
     let addr = env::args()

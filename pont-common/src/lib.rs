@@ -128,9 +128,6 @@ impl Game {
             }
         }
         bag.shuffle(&mut thread_rng());
-        while bag.len() > 13 {
-            bag.pop();
-        }
 
         Game {
             board: HashMap::new(), bag
