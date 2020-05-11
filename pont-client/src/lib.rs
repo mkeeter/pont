@@ -101,6 +101,12 @@ struct Dragging {
 }
 
 #[derive(PartialEq)]
+struct Panning {
+    target: Element,
+    pos: Pos,
+}
+
+#[derive(PartialEq)]
 struct TileAnimation {
     target: Element,
     start: Pos,
@@ -135,22 +141,25 @@ struct DropManyToGrid(Vec<TileAnimation>);
 #[derive(PartialEq)]
 struct ReturnToHand(TileAnimation);
 #[derive(PartialEq)]
-struct DragPan(Pos);
-#[derive(PartialEq)]
 struct ReturnAllToHand(Vec<TileAnimation>);
 #[derive(PartialEq)]
 struct ConsolidateHand(Vec<TileAnimation>);
 
 #[derive(PartialEq)]
-enum DragState {
-    Idle,
-    Dragging(Dragging),
+enum DragAnim {
     DropToGrid(DropToGrid),
     DropManyToGrid(DropManyToGrid),
     ReturnToHand(ReturnToHand),
-    DragPan(DragPan),
     ReturnAllToHand(ReturnAllToHand),
     ConsolidateHand(ConsolidateHand),
+}
+
+#[derive(PartialEq)]
+enum BoardState {
+    Idle,
+    Dragging(Dragging),
+    Panning(Panning),
+    Animation(DragAnim),
 }
 
 enum DropTarget {
@@ -170,7 +179,7 @@ pub struct Board {
     svg: SvgGraphicsElement,
     svg_div: Element,
 
-    drag: DragState,
+    state: BoardState,
 
     pan_group: Element,
     pan_offset: Pos,
@@ -264,7 +273,7 @@ impl Board {
 
         let out = Board {
             doc: doc.clone(),
-            drag: DragState::Idle,
+            state: BoardState::Idle,
             svg, svg_div,
             pan_group,
             pan_offset: (0.0, 0.0),
@@ -319,9 +328,8 @@ impl Board {
     }
 
     fn on_pan_start(&mut self, evt: PointerEvent) -> JsError {
-        match self.drag {
-            DragState::Idle => (),
-            _ => return Ok(()),
+        if self.state != BoardState::Idle {
+            return Ok(());
         }
         // No panning before placing the first piece, to prevent griefing by
         // placing the piece far from the visible region.
@@ -330,17 +338,10 @@ impl Board {
         }
 
         evt.prevent_default();
-
-        let p = self.mouse_pos(&evt);
-        self.drag = DragState::DragPan(DragPan(
-            (p.0 - self.pan_offset.0, p.1 - self.pan_offset.1)));
-
         let target = evt.target()
             .unwrap()
             .dyn_into::<Element>()?;
-
         target.set_pointer_capture(evt.pointer_id())?;
-
 
         let mut options = AddEventListenerOptions::new();
         options.passive(false);
@@ -357,15 +358,21 @@ impl Board {
                 "pointermove",
                 self.pan_move_cb.as_ref().unchecked_ref(), &options)?;
 
+        let p = self.mouse_pos(&evt);
+        self.state = BoardState::Panning(Panning {
+            target,
+            pos: (p.0 - self.pan_offset.0, p.1 - self.pan_offset.1)
+        });
+
         Ok(())
     }
 
     fn on_pan_move(&mut self, evt: PointerEvent) -> JsError {
-        if let DragState::DragPan(d) = &self.drag {
+        if let BoardState::Panning(d) = &self.state {
             evt.prevent_default();
 
             let p = self.mouse_pos(&evt);
-            self.pan_offset = (p.0 - (d.0).0, p.1 - (d.0).1);
+            self.pan_offset = (p.0 - d.pos.0, p.1 - d.pos.1);
             self.pan_group.set_attribute("transform",
                                    &format!("translate({} {})",
                                    self.pan_offset.0,
@@ -378,30 +385,28 @@ impl Board {
     fn on_pan_end(&mut self, evt: PointerEvent) -> JsError {
         evt.prevent_default();
 
-        let target = evt.target()
-            .unwrap()
-            .dyn_into::<Element>()?;
-        target.release_pointer_capture(evt.pointer_id())?;
-        target.remove_event_listener_with_callback("pointermove",
-                self.pan_move_cb.as_ref().unchecked_ref())?;
-        target.remove_event_listener_with_callback("pointerup",
-                self.pan_end_cb.as_ref().unchecked_ref())?;
-        self.doc.body()
-            .expect("Could not get boby")
-            .remove_event_listener_with_callback(
-                "pointermove",
-                self.pan_move_cb.as_ref().unchecked_ref())?;
+        if let BoardState::Panning(d) = &self.state {
+            d.target.release_pointer_capture(evt.pointer_id())?;
+            d.target.remove_event_listener_with_callback("pointermove",
+                    self.pan_move_cb.as_ref().unchecked_ref())?;
+            d.target.remove_event_listener_with_callback("pointerup",
+                    self.pan_end_cb.as_ref().unchecked_ref())?;
+            self.doc.body()
+                .expect("Could not get boby")
+                .remove_event_listener_with_callback(
+                    "pointermove",
+                    self.pan_move_cb.as_ref().unchecked_ref())?;
+        }
 
-        self.drag = DragState::Idle;
+        self.state = BoardState::Idle;
         Ok(())
     }
 
     fn on_pointer_down(&mut self, evt: PointerEvent) -> JsError {
         // We only drag if nothing else is dragging;
         // no fancy multi-touch dragging here.
-        match self.drag {
-            DragState::Idle => (),
-            _ => return Ok(()),
+        if self.state != BoardState::Idle {
+            return Ok(());
         }
         evt.prevent_default();
 
@@ -470,7 +475,7 @@ impl Board {
                 "pointermove",
                 self.pointer_move_cb.as_ref().unchecked_ref(), &options)?;
 
-        self.drag = DragState::Dragging(Dragging {
+        self.state = BoardState::Dragging(Dragging {
             target,
             shadow,
             offset: (mx - tx, my - ty),
@@ -481,7 +486,7 @@ impl Board {
     }
 
     fn drop_target(&self, evt: &PointerEvent) -> JsResult<(Pos, DropTarget)> {
-        if let DragState::Dragging(d) = &self.drag {
+        if let BoardState::Dragging(d) = &self.state {
             // Get the position of the tile being dragged
             // in SVG frame coordinates (0-200)
             let (mut x, mut y) = self.mouse_pos(&evt);
@@ -547,7 +552,7 @@ impl Board {
     }
 
     fn on_pointer_move(&self, evt: PointerEvent) -> JsError {
-        if let DragState::Dragging(d) = &self.drag {
+        if let BoardState::Dragging(d) = &self.state {
             evt.prevent_default();
 
             let (pos, drop_target) = self.drop_target(&evt)?;
@@ -589,7 +594,7 @@ impl Board {
     }
 
     fn on_pointer_up(&mut self, evt: PointerEvent) -> JsError {
-        if let DragState::Dragging(d) = &self.drag {
+        if let BoardState::Dragging(d) = &self.state {
             evt.prevent_default();
 
             d.target.release_pointer_capture(evt.pointer_id())?;
@@ -604,16 +609,16 @@ impl Board {
                     self.pointer_move_cb.as_ref().unchecked_ref())?;
 
             let (pos, drop_target) = self.drop_target(&evt)?;
-            self.drag = match drop_target {
+            let drag_anim = match drop_target {
                 DropTarget::ReturnToHand => {
                     self.pan_group.remove_child(&d.shadow)?;
-                    DragState::ReturnToHand(ReturnToHand(
+                    Some(DragAnim::ReturnToHand(ReturnToHand(
                         TileAnimation {
                             target: d.target.clone(),
                             start: pos,
                             end: ((d.hand_index * 15 + 5) as f32, 185.0),
                             t0: evt.time_stamp()
-                        }))
+                        })))
                 },
                 DropTarget::DropToGrid(gx, gy) |
                 DropTarget::ReturnToGrid(gx, gy) => {
@@ -621,7 +626,7 @@ impl Board {
                     let target = d.target.clone();
                     self.svg.remove_child(&target)?;
                     self.pan_group.append_child(&target)?;
-                    DragState::DropToGrid(DropToGrid{
+                    Some(DragAnim::DropToGrid(DropToGrid{
                         anim: TileAnimation {
                             target,
                             start: (pos.0 - self.pan_offset.0, pos.1 - self.pan_offset.1),
@@ -629,7 +634,7 @@ impl Board {
                             t0: evt.time_stamp(),
                         },
                         shadow: d.shadow.clone(),
-                    })
+                    }))
                 },
                 DropTarget::Exchange => {
                     self.exchange_list.push(d.hand_index);
@@ -637,12 +642,16 @@ impl Board {
                     self.update_exchange_div(true)?;
                     self.accept_button.set_disabled(false);
                     self.reject_button.set_disabled(false);
-                    DragState::Idle
+
+                    // No animation here, because we wait for the server to
+                    // send back a MoveAccepted message then consolidate hand
+                    None
                 },
             };
             self.mark_invalid()?;
             self.update_exchange_div(true)?;
-            if self.drag != DragState::Idle {
+            if let Some(drag) = drag_anim {
+                self.state = BoardState::Animation(drag);
                 self.request_animation_frame()?;
             }
         }
@@ -650,58 +659,58 @@ impl Board {
     }
 
     fn on_anim(&mut self, t: f64) -> JsError {
-        match &mut self.drag {
-            DragState::DropToGrid(d) => {
-                if d.anim.run(t)? {
-                    self.request_animation_frame()?;
-                } else {
-                    self.pan_group.remove_child(&d.shadow)?;
-                    self.drag = DragState::Idle;
-                    self.accept_button.set_disabled(!self.mark_invalid()?);
-                    self.reject_button.set_disabled(false);
-                }
-            },
-            DragState::ReturnToHand(d) => {
-                if d.0.run(t)? {
-                    self.request_animation_frame()?;
-                } else {
-                    self.drag = DragState::Idle;
-                    if !self.tentative.is_empty() {
+        if let BoardState::Animation(drag) = &mut self.state {
+            match drag {
+                DragAnim::DropToGrid(d) => {
+                    if d.anim.run(t)? {
+                        self.request_animation_frame()?;
+                    } else {
+                        self.pan_group.remove_child(&d.shadow)?;
+                        self.state = BoardState::Idle;
                         self.accept_button.set_disabled(!self.mark_invalid()?);
-                    } else if self.exchange_list.is_empty() {
+                        self.reject_button.set_disabled(false);
+                    }
+                },
+                DragAnim::ReturnToHand(d) => {
+                    if d.0.run(t)? {
+                        self.request_animation_frame()?;
+                    } else {
+                        self.state = BoardState::Idle;
+                        if !self.tentative.is_empty() {
+                            self.accept_button.set_disabled(!self.mark_invalid()?);
+                        } else if self.exchange_list.is_empty() {
+                            self.accept_button.set_disabled(true);
+                            self.reject_button.set_disabled(true);
+                        }
+                    }
+                },
+                DragAnim::ReturnAllToHand(d) => {
+                    let mut any_running = false;
+                    for a in d.0.iter() {
+                        any_running |= a.run(t)?;
+                    }
+                    if any_running {
+                        self.request_animation_frame()?;
+                    } else {
+                        self.state = BoardState::Idle;
                         self.accept_button.set_disabled(true);
                         self.reject_button.set_disabled(true);
+                        self.update_exchange_div(true)?;
                     }
-                }
-            },
-            DragState::ReturnAllToHand(d) => {
-                let mut any_running = false;
-                for a in d.0.iter() {
-                    any_running |= a.run(t)?;
-                }
-                if any_running {
-                    self.request_animation_frame()?;
-                } else {
-                    self.drag = DragState::Idle;
-                    self.accept_button.set_disabled(true);
-                    self.reject_button.set_disabled(true);
-                    self.update_exchange_div(true)?;
-                }
-            },
-            DragState::ConsolidateHand(ConsolidateHand(d)) |
-            DragState::DropManyToGrid(DropManyToGrid(d)) => {
-                let mut any_running = false;
-                for a in d.iter() {
-                    any_running |= a.run(t)?;
-                }
-                if any_running {
-                    self.request_animation_frame()?;
-                } else {
-                    self.drag = DragState::Idle;
-                }
-            },
-            DragState::Dragging(_) | DragState::DragPan(_) | DragState::Idle =>
-                panic!("Invalid drag state"),
+                },
+                DragAnim::ConsolidateHand(ConsolidateHand(d)) |
+                DragAnim::DropManyToGrid(DropManyToGrid(d)) => {
+                    let mut any_running = false;
+                    for a in d.iter() {
+                        any_running |= a.run(t)?;
+                    }
+                    if any_running {
+                        self.request_animation_frame()?;
+                    } else {
+                        self.state = BoardState::Idle;
+                    }
+                },
+            }
         }
         Ok(())
     }
@@ -836,12 +845,11 @@ impl Board {
 
     fn on_reject_button(&mut self, evt: Event) -> JsError {
         // Don't allow for any tricky business here
-        match self.drag {
-            DragState::Idle => (),
-            _ => return Ok(()),
+        if self.state != BoardState::Idle {
+            return Ok(());
         }
 
-        if !self.tentative.is_empty() {
+        let drag = if !self.tentative.is_empty() {
             let mut tiles = HashMap::new();
             std::mem::swap(&mut self.tentative, &mut tiles);
             // Take every active tile and free them from the tile grid,
@@ -857,7 +865,7 @@ impl Board {
                             dy - self.pan_offset.1))?;
                 self.svg.append_child(t)?;
             }
-            self.drag = DragState::ReturnAllToHand(ReturnAllToHand(
+            Some(DragAnim::ReturnAllToHand(ReturnAllToHand(
                 tiles.drain().map(|((tx, ty), i)|
                     TileAnimation {
                         target: self.hand[i].1.clone(),
@@ -865,11 +873,12 @@ impl Board {
                                 ty as f32 * 10.0 + self.pan_offset.1),
                         end: ((i * 15 + 5) as f32, 185.0),
                         t0: evt.time_stamp()
-                    }).collect()));
+                    }).collect())))
         } else if !self.exchange_list.is_empty() {
             let mut ex = Vec::new();
             std::mem::swap(&mut ex, &mut self.exchange_list);
-            self.drag = DragState::ReturnAllToHand(ReturnAllToHand(
+            self.update_exchange_div(true)?;
+            Some(DragAnim::ReturnAllToHand(ReturnAllToHand(
                 ex.drain(0..)
                     .map(|i| {
                         let target = self.hand[i].1.clone();
@@ -882,11 +891,13 @@ impl Board {
                             t0: evt.time_stamp()
                         })
                     })
-                    .collect::<JsResult<Vec<TileAnimation>>>()?));
-            self.update_exchange_div(true)?;
-        }
+                    .collect::<JsResult<Vec<TileAnimation>>>()?)))
+        } else {
+            None
+        };
 
-        if self.drag != DragState::Idle {
+        if let Some(drag) = drag {
+            self.state = BoardState::Animation(drag);
             self.request_animation_frame()?;
         }
         Ok(())
@@ -896,9 +907,8 @@ impl Board {
      *  If the move is valid, returns the indexes of placed pieces
      *  (as hand indexes), which can be passed up to the server. */
     fn make_move(&mut self, _evt: Event) -> JsResult<Move> {
-        match self.drag {
-            DragState::Idle => (),
-            _ => return Ok(Move::Place(Vec::new())),
+        if self.state != BoardState::Idle {
+            return Ok(Move::Place(Vec::new()));
         }
 
         // Disable everything until we hear back from the server.
@@ -968,7 +978,8 @@ impl Board {
                 t0
             })
         }
-        self.drag = DragState::ConsolidateHand(ConsolidateHand(anims));
+        self.state = BoardState::Animation(
+            DragAnim::ConsolidateHand(ConsolidateHand(anims)));
         self.request_animation_frame()?;
 
         Ok(())
@@ -1547,7 +1558,7 @@ impl Playing {
                 end: (*x as f32 * 10.0, *y as f32 * 10.0),
                 t0 });
         }
-        self.board.drag = DragState::DropManyToGrid(DropManyToGrid(anims));
+        self.board.state = BoardState::Animation(DragAnim::DropManyToGrid(DropManyToGrid(anims)));
         self.board.request_animation_frame()?;
         Ok(())
     }
