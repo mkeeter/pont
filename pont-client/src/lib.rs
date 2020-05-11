@@ -1700,6 +1700,15 @@ fn start(text: JsValue) -> JsError {
         .expect("Could not convert hostname to string");
     console_log!("Connecting to websocket at {}", hostname);
     let ws = WebSocket::new(&hostname)?;
+    doc.get_element_by_id(
+            if hostname.starts_with("ws://") {
+                "conn-insecure"
+            } else {
+                "conn-secure"
+            })
+        .expect("Could not find header")
+        .dyn_into::<HtmlElement>()?
+        .set_hidden(false);
 
     // The websocket callbacks are long-lived, so we forget them here
     set_event_cb(&ws, "open", move |_: JsValue| {
