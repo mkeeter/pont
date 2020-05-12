@@ -625,9 +625,14 @@ fn main() -> Result<(), IoError> {
     {   // Periodically print the number of open rooms to the logs
         let rooms = rooms.clone();
         Task::spawn(async move {
+            let mut prev_count = 0;
             loop {
                 Timer::after(Duration::from_secs(60)).await;
-                info!("{} rooms open", rooms.lock().unwrap().len());
+                let count = rooms.lock().unwrap().len();
+                if count != prev_count {
+                    info!("{} rooms open", count);
+                    prev_count = count;
+                }
             }
         }).detach()
     }
