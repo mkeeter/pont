@@ -104,6 +104,7 @@ struct Dragging {
 struct Panning {
     target: Element,
     pos: Pos,
+    pointer_id: i32,
 }
 
 #[derive(PartialEq)]
@@ -200,7 +201,7 @@ pub struct Board {
     touch_start_cb: JsClosure<Event>,
 
     pan_move_cb: JsClosure<PointerEvent>,
-    pan_end_cb: JsClosure<PointerEvent>,
+    pan_end_cb: JsClosure<Event>,
 
     anim_cb: JsClosure<f64>,
 }
@@ -252,7 +253,7 @@ impl Board {
             HANDLE.lock().unwrap()
                 .on_pan_move(evt)
         });
-        let pan_end_cb = build_cb(move |evt: PointerEvent| {
+        let pan_end_cb = build_cb(move |evt: Event| {
             HANDLE.lock().unwrap()
                 .on_pan_end(evt)
         });
@@ -345,7 +346,8 @@ impl Board {
 
         let mut options = AddEventListenerOptions::new();
         options.passive(false);
-        target.set_pointer_capture(evt.pointer_id())?;
+        let pointer_id = evt.pointer_id();
+        target.set_pointer_capture(pointer_id)?;
         target.add_event_listener_with_callback_and_add_event_listener_options(
             "pointermove",
             self.pan_move_cb.as_ref().unchecked_ref(), &options)?;
@@ -361,6 +363,7 @@ impl Board {
         let p = self.mouse_pos(&evt);
         self.state = BoardState::Panning(Panning {
             target,
+            pointer_id,
             pos: (p.0 - self.pan_offset.0, p.1 - self.pan_offset.1)
         });
 
@@ -382,11 +385,11 @@ impl Board {
         }
     }
 
-    fn on_pan_end(&mut self, evt: PointerEvent) -> JsError {
+    fn on_pan_end(&mut self, evt: Event) -> JsError {
         evt.prevent_default();
 
         if let BoardState::Panning(d) = &self.state {
-            d.target.release_pointer_capture(evt.pointer_id())?;
+            d.target.release_pointer_capture(d.pointer_id)?;
             d.target.remove_event_listener_with_callback("pointermove",
                     self.pan_move_cb.as_ref().unchecked_ref())?;
             d.target.remove_event_listener_with_callback("pointerup",
@@ -396,10 +399,11 @@ impl Board {
                 .remove_event_listener_with_callback(
                     "pointermove",
                     self.pan_move_cb.as_ref().unchecked_ref())?;
+            self.state = BoardState::Idle;
+            Ok(())
+        } else {
+            Err(JsValue::from_str("Invalid state (pan end)"))
         }
-
-        self.state = BoardState::Idle;
-        Ok(())
     }
 
     fn on_pointer_down(&mut self, evt: PointerEvent) -> JsError {
@@ -1119,7 +1123,7 @@ impl State {
             on_pointer_move(evt: PointerEvent),
             on_pan_start(evt: PointerEvent),
             on_pan_move(evt: PointerEvent),
-            on_pan_end(evt: PointerEvent),
+            on_pan_end(evt: Event),
             on_accept_button(evt: Event),
             on_reject_button(evt: Event),
             on_anim(t: f64),
@@ -1520,7 +1524,7 @@ impl Playing {
         self.board.on_pan_move(evt)
     }
 
-    fn on_pan_end(&mut self, evt: PointerEvent) -> JsError {
+    fn on_pan_end(&mut self, evt: Event) -> JsError {
         self.board.on_pan_end(evt)
     }
 
@@ -1557,6 +1561,11 @@ impl Playing {
                 start: (225.0, *y as f32 * 10.0),
                 end: (*x as f32 * 10.0, *y as f32 * 10.0),
                 t0 });
+        }
+        // If we're panning, we need to cancel the pan state before starting
+        // an animation, otherwise a mouse-up will mess things up.
+        if let BoardState::Panning(_) = &self.board.state {
+            self.board.on_pan_end(Event::new("CancelPan")?)?;
         }
         self.board.state = BoardState::Animation(DragAnim::DropManyToGrid(DropManyToGrid(anims)));
         self.board.request_animation_frame()?;
