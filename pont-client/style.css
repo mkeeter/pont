@@ -172,23 +172,30 @@ rect#pan_rect {
     fill: none;
     pointer-events: all;
 }
-.shape-orange {
+g.shape-orange .color {
     fill: var(--orange);
 }
-.shape-yellow {
+.shape-yellow .color {
     fill: var(--yellow);
 }
-.shape-green {
+g.shape-green .color {
     fill: var(--green);
 }
-.shape-red {
+g.shape-red .color {
     fill: var(--red);
 }
-.shape-blue {
+g.shape-blue .color {
     fill: var(--blue);
 }
-.shape-purple {
+g.shape-purple .color {
     fill: var(--violet);
+}
+
+.corner {
+    visibility: hidden;
+}
+div.colorblind .corner {
+    visibility: visible;
 }
 
 /*  Buttons to submit your play */

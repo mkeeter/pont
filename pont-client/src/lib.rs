@@ -820,7 +820,11 @@ impl Board {
                 g
             }
         };
-        s.class_list().add_1(match p.1 {
+        s.class_list().add_1("color")?;
+
+        g.append_child(&r)?;
+        g.append_child(&s)?;
+        g.class_list().add_1(match p.1 {
             Color::Orange => "shape-orange",
             Color::Yellow => "shape-yellow",
             Color::Green => "shape-green",
@@ -829,8 +833,29 @@ impl Board {
             Color::Purple => "shape-purple",
         })?;
 
-        g.append_child(&r)?;
-        g.append_child(&s)?;
+        // Add carets on the corners based on color, to be accessible
+        let mut pts = Vec::new();
+        if p.1 == Color::Orange || p.1 == Color::Yellow {
+            pts.push("0.5,0.5 3,0.5 0.5,3");
+        }
+        if p.1 == Color::Orange || p.1 == Color::Green {
+            pts.push("9.5,9.5 7,9.5 9.5,7");
+        }
+        if p.1 == Color::Red || p.1 == Color::Blue {
+            pts.push("0.5,9.5 3,9.5 0.5,7");
+        }
+        if p.1 == Color::Red || p.1 == Color::Purple {
+            pts.push("9.5,0.5 7,0.5 9.5,3");
+        }
+
+        for poly in pts.into_iter() {
+            let corner = self.doc.create_svg_element("polygon")?;
+            corner.set_attribute("points", poly)?;
+            corner.class_list().add_1("corner")?;
+            corner.class_list().add_1("color")?;
+            g.append_child(&corner)?;
+        }
+
 
         Ok(g)
     }
