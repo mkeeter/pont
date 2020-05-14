@@ -1642,7 +1642,7 @@ impl Playing {
         self.on_information(&format!("{} scored {} point{}",
             self.active_player_name(),
             delta,
-            if delta > 1 { "s" } else { "" }))
+            if delta == 1 { "" } else { "s" }))
     }
 
     fn on_finished(&mut self, winner: usize) -> JsError {
