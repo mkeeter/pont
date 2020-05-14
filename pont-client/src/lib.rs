@@ -1212,18 +1212,10 @@ fn set_event_cb<E, F, T>(obj: &E, name: &str, f: F) -> JsClosure<T>
 
 impl Connecting {
     fn on_connected(self) -> JsResult<CreateOrJoin> {
-        self.base.doc.get_element_by_id("connecting")
-            .expect("Could not get connecting div")
-            .dyn_into::<HtmlElement>()?
-            .set_hidden(true);
         self.base.doc.get_element_by_id("disconnected_msg")
             .expect("Could not get disconnected_msg div")
             .dyn_into::<HtmlElement>()?
             .set_text_content(Some("Lost connection to game server"));
-        self.base.doc.get_element_by_id("join")
-            .expect("Could not get join div")
-            .dyn_into::<HtmlElement>()?
-            .set_hidden(false);
         CreateOrJoin::new(self.base)
     }
 }
@@ -1232,10 +1224,10 @@ impl CreateOrJoin {
     fn new(base: Base) -> JsResult<CreateOrJoin> {
         let name_input = base.doc.get_element_by_id("name_input")
             .expect("Could not find name_input")
-            .dyn_into()?;
+            .dyn_into::<HtmlInputElement>()?;
         let room_input = base.doc.get_element_by_id("room_input")
             .expect("Could not find room_input")
-            .dyn_into()?;
+            .dyn_into::<HtmlInputElement>()?;
         let room_invalid_cb = set_event_cb(&room_input, "invalid",
             move |_: Event| {
                 HANDLE.lock().unwrap().on_room_name_invalid()
@@ -1260,7 +1252,15 @@ impl CreateOrJoin {
 
         let play_button = base.doc.get_element_by_id("play_button")
             .expect("Could not find play_button")
-            .dyn_into()?;
+            .dyn_into::<HtmlButtonElement>()?;
+
+        play_button.set_text_content(Some(
+            if room_input.value().is_empty() {
+                "Create new room"
+            } else {
+                "Join existing room"
+            }));
+        play_button.class_list().remove_1("disabled")?;
 
         let colorblind_checkbox = base.doc.get_element_by_id("colorblind")
             .expect("Could not find colorblind checkbox")
@@ -1799,7 +1799,7 @@ fn start(text: JsValue) -> JsError {
             .expect("no global `window` exists")
             .document()
             .expect("should have a document on window");
-        for d in ["loading", "connecting", "join", "playing"].iter() {
+        for d in ["join", "playing"].iter() {
             doc.get_element_by_id(d)
                 .expect("Could not get major div")
                 .dyn_into::<HtmlElement>()?
@@ -1812,23 +1812,17 @@ fn start(text: JsValue) -> JsError {
         Ok(())
     }).forget();
 
-
     let rev = doc.get_element_by_id("revhash")
         .expect("Could not find rev");
     rev.set_text_content(Some(env!("VERGEN_SHA_SHORT")));
 
     let base = Base { doc, ws };
-    base.doc.get_element_by_id("loading")
+    base.doc.get_element_by_id("play_button")
         .expect("Could not get loading div")
         .dyn_into::<HtmlElement>()?
-        .set_hidden(true);
-    base.doc.get_element_by_id("connecting")
-        .expect("Could not get connecting div")
-        .dyn_into::<HtmlElement>()?
-        .set_hidden(false);
+        .set_text_content(Some("Connecting..."));
 
     *HANDLE.lock().unwrap() = State::Connecting(Connecting { base });
-
 
     Ok(())
 }

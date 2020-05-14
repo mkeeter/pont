@@ -16,13 +16,6 @@
         run();
     </script>
 
-    <!-- Initial UI just says "Loading..." -->
-    <div id="loading" class="information">
-        <p><i class="fas fa-download"></i> Loading...</p>
-    </div>
-    <div id="connecting" hidden="" class="information">
-        <p><i class="fas fa-server"></i> Connecting...</p>
-    </div>
     <div id="disconnected" hidden="" class="information">
         <p><i class="fas fa-exclamation-triangle"></i>
             <span id="disconnected_msg">Could not connect to game server</span>
@@ -31,11 +24,11 @@
     </div>
 
     <!-- UI while joining the game -->
-    <div id="join" hidden="">
+    <div id="join">
         <form id="join_form">
             <p><b>Name:</b><input id="name_input" placeholder="John Smith" required=""></p>
             <p><b>Room:</b><input id="room_input" pattern="^[a-z]+ [a-z]+ [a-z]+$"></p>
-            <p><button id="play_button" type="submit">Create new room</button></p>
+            <p><button id="play_button" type="submit" class="disabled">Loading...</button></p>
             <p>Colorblind mode: <input type="checkbox" value="0" id="colorblind"></p>
         </form>
         <div id="err_div" hidden="">

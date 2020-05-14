@@ -85,6 +85,7 @@ p.msg {
 
 /*  Button to join the game */
 button {
+    color: var(--dark2);
     background-color: var(--light0);
     border:1px solid var(--dark4);
     border-radius: 5px;
@@ -92,7 +93,7 @@ button {
 }
 
 form button {
-    border-radius: 5px
+    border-radius: 5px;
     transition: border-radius 0.1s;
     padding: 10px 20px;
     font-family: Inconsolata, "Courier New", monospace;
@@ -102,6 +103,12 @@ form button {
 form:invalid button {
     color: var(--dark4);
     background-color: var(--light1);
+}
+
+button.disabled {
+    color: var(--dark4);
+    background-color: var(--light1);
+    pointer-events: none;
 }
 
 /*  Only change button radius on hover for devices that support it
