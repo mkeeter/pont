@@ -1093,6 +1093,7 @@ struct CreateOrJoin {
     name_input: HtmlInputElement,
     room_input: HtmlInputElement,
     play_button: HtmlButtonElement,
+    colorblind_checkbox: HtmlInputElement,
     err_div: HtmlElement,
     err_span: HtmlElement,
 
@@ -1261,11 +1262,16 @@ impl CreateOrJoin {
             .expect("Could not find play_button")
             .dyn_into()?;
 
+        let colorblind_checkbox = base.doc.get_element_by_id("colorblind")
+            .expect("Could not find colorblind checkbox")
+            .dyn_into()?;
+
         Ok(CreateOrJoin {
             base,
             name_input,
             room_input,
             play_button,
+            colorblind_checkbox,
             err_div,
             err_span,
 
@@ -1308,6 +1314,12 @@ impl CreateOrJoin {
         self.play_button.set_disabled(true);
         let name = self.name_input.value();
         let room = self.room_input.value();
+        if self.colorblind_checkbox.checked() {
+            self.base.doc.get_element_by_id("playing")
+                .ok_or_else(|| JsValue::from_str("No playing box"))?
+                .class_list()
+                .add_1("colorblind")?;
+        }
         let msg = if room.is_empty() {
             ClientMessage::CreateRoom(name)
         } else {
