@@ -657,6 +657,8 @@ impl Board {
             if let Some(drag) = drag_anim {
                 self.state = BoardState::Animation(drag);
                 self.request_animation_frame()?;
+            } else {
+                self.state = BoardState::Idle;
             }
         }
         Ok(())
