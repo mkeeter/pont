@@ -39,3 +39,9 @@ sudo ufw enable
 
 This will force users to connect to the `nginx` proxy,
 rather than to `pont-server` directly.
+
+Also consider editing `/etc/ssh/sshd_config` and setting
+```
+PermitRootLogin no
+```
+(then reloading with `sudo systemctl reload sshd`)
