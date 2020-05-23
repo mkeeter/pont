@@ -9,7 +9,12 @@ the only Javascript is a shim to load the WebAssembly module.
 It's easiest to run the whole application on a single VM,
 using [NGINX](https://www.nginx.com/) to both serve static content
 and to act as a secure proxy for websocket communication.
-The latter lets our server app not worry about SSL itself.
+The latter means we don't need SSL support in the game server itself.
+
+I'm hosting a copy of the game at
+[https://pont.mattkeeter.com](https://pont.mattkeeter.com),
+using a $5/month droplet from [Digital Ocean](https://www.digitalocean.com/)
+and [Dreamhost](https://www.dreamhost.com/) for domain registration.
 
 ## Initial setup
 ```
