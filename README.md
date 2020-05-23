@@ -54,7 +54,7 @@ sudo rm /etc/nginx/sites-enabled/default
 sudo nginx -s reload
 ```
 This won't work out of the box, because the configuration assumes the url is
-`wss.mattkeeter.com`, which won't be true for you; edit it accordingly.
+`pont.mattkeeter.com`, which won't be true for you; edit it accordingly.
 
 ## Running the server
 ```
