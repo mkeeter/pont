@@ -33,6 +33,8 @@ You can also turn on a firewall to improve your server's security:
 
 ```
 sudo ufw allow ssh
+sudo ufw allow http
+sudo ufw allow https
 sudo ufw allow 8081
 sudo ufw enable
 ```
