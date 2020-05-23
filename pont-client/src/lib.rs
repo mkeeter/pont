@@ -1725,10 +1725,10 @@ pub fn main() -> JsError {
     let url = format!("{}/ws", href);
     let request = Request::new_with_str(&url)?;
     let fetch = window.fetch_with_request(&request);
-    let ws_protocol = if location.protocol()? == "https" {
-        "wss"
+    let (ws_protocol, ws_port) = if location.protocol()? == "https:" {
+        ("wss", 8081)
     } else {
-        "ws"
+        ("ws",  8080)
     };
 
     let text_cb = Closure::wrap(Box::new(move |text: JsValue| {
@@ -1745,7 +1745,7 @@ pub fn main() -> JsError {
                 .then(&text_cb);
         } else {
             start(JsValue::from_str(
-                    &format!("{}://{}:8080", ws_protocol, hostname)))
+                    &format!("{}://{}:{}", ws_protocol, hostname, ws_port)))
                 .expect("Could not start with default hostname");
         }
     }) as Box<dyn FnMut(JsValue)>);
