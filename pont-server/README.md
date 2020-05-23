@@ -47,3 +47,8 @@ Also consider editing `/etc/ssh/sshd_config` and setting
 PermitRootLogin no
 ```
 (then reloading with `sudo systemctl reload sshd`)
+
+# Building the client side
+```
+curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+```
