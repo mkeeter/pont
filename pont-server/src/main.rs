@@ -10,8 +10,8 @@ use rand::Rng;
 use log::{error, info, trace, warn};
 use env_logger::Env;
 
-use futures::future;
-use futures::stream::{StreamExt, SplitSink};
+use futures::{future, join};
+use futures::stream::StreamExt;
 use futures::sink::SinkExt;
 use futures::channel::mpsc::{unbounded, UnboundedSender, UnboundedReceiver};
 
@@ -53,19 +53,25 @@ impl RoomHandle {
     {
         let (incoming, outgoing) = ws_stream.split();
 
-        // Add the player to the room, storing the room name while we have a
-        // lock to print in error messages later.
-        let room_name = {
-            let room = &mut self.room.lock().unwrap();
-            room.add_player(addr, name, incoming)?;
-            room.name.clone()
-        };
+        // Messages to the player's websocket are mediated by a queue,
+        // with a separate async task reading messages from the queue
+        // and pushing them down the websocket.  This lets us send messages to
+        // a player without blocking or needing an extra await in the
+        // main game loop, which would get awkward.
+        let (ws_tx, ws_rx) = unbounded();
 
-        // Messages from every player's websocket are asynchronously
-        // forwarded to the room's MPSC queue in a standalone task.
+        let room = &mut self.room.lock().unwrap();
+        let room_name = room.name.clone();
+        let player_name = name.clone();
         let write = self.write.clone();
         Task::spawn(async move {
-            let result = outgoing.map(|m|
+            let ra = ws_rx
+                .map(|c| bincode::serialize(&c)
+                    .unwrap_or_else(|_| panic!("Could not encode {:?}", c)))
+                .map(WebsocketMessage::Binary)
+                .map(Ok)
+                .forward(incoming);
+            let rb = outgoing.map(|m|
                 match m {
                     Ok(WebsocketMessage::Binary(t)) =>
                         bincode::deserialize::<ClientMessage>(&t).ok(),
@@ -76,19 +82,34 @@ impl RoomHandle {
                 .chain(futures::stream::once(async {
                     ClientMessage::Disconnected }))
                 .map(move |m| Ok((addr, m)))
-                .forward(write)
-                .await;
-            if let Err(e) = result {
-                error!("[{}]: Got error {:?}", room_name, e);
+                .forward(write);
+            let (ra, rb) = join!(ra, rb);
+
+            if let Err(e) = ra {
+                error!("[{}] Got error {} from player {}'s rx queue",
+                       room_name, e, player_name);
+            }
+            if let Err(e) = rb {
+                error!("[{}] Got error {} from player {}'s tx queue",
+                       room_name, e, player_name);
             }
         }).detach();
 
-        Ok(())
+        room.add_player(addr, name, ws_tx)
+    }
+
+    async fn run(&mut self, mut read: UnboundedReceiver<TaggedClientMessage>) {
+        while let Some((addr, msg)) = read.next().await {
+            if !self.room.lock().unwrap().on_message(addr, msg) {
+                break;
+            }
+        }
     }
 }
 
 type RoomList = Arc<Mutex<HashMap<String, RoomHandle>>>;
 
+#[derive(Default)]
 struct Room {
     name: String,
     started: bool,
@@ -183,33 +204,8 @@ impl Room {
     }
 
     fn add_player(&mut self, addr: SocketAddr, player_name: String,
-                  ws: SplitSink<WebSocketStream<Async<TcpStream>>, WebsocketMessage>)
-        -> Result<()>
+                  ws_tx: UnboundedSender<ServerMessage>) -> Result<()>
     {
-        // Messages to the player's websocket are mediated by a queue,
-        // with a separate async task reading messages from the queue
-        // and pushing them down the websocket.  This lets us send messages to
-        // a player without blocking or needing an extra await in the
-        // main game loop, which would get awkward.
-        let (ws_tx, ws_rx) = unbounded();
-        {
-            let room_name = self.name.clone();
-            let player_name = player_name.clone();
-            Task::spawn(async move {
-                let result = ws_rx
-                    .map(|c| bincode::serialize(&c)
-                        .unwrap_or_else(|_| panic!("Could not encode {:?}", c)))
-                    .map(WebsocketMessage::Binary)
-                    .map(Ok)
-                    .forward(ws)
-                    .await;
-                if let Err(e) = result {
-                    error!("[{}] Got error {} from player {}'s queue",
-                           room_name, e, player_name);
-                }
-            }).detach();
-        }
-
         // Pick out a hand for our new player
         let hand = self.game.deal(6);
         let mut pieces = Vec::new();
@@ -456,50 +452,21 @@ impl Room {
     }
 }
 
-async fn run_room(handle: RoomHandle,
-                  mut read: UnboundedReceiver<TaggedClientMessage>)
+fn next_room_name(rooms: &mut HashMap<String, RoomHandle>,
+                  handle: RoomHandle) -> String
 {
-    while let Some((addr, msg)) = read.next().await {
-        if !handle.room.lock().unwrap().on_message(addr, msg) {
-            break;
-        }
-    }
-}
-
-fn new_room(rooms: &mut HashMap<String, RoomHandle>) ->
-    (UnboundedReceiver<TaggedClientMessage>, String, RoomHandle)
-{
-    let mut rng = rand::thread_rng();
     // This loop should only run once, unless we're starting to saturate the
     // space of possible room names (which is quite large)
+    let mut rng = rand::thread_rng();
     loop {
         let room_name = format!("{} {} {}",
             WORD_LIST[rng.gen_range(0, WORD_LIST.len())],
             WORD_LIST[rng.gen_range(0, WORD_LIST.len())],
             WORD_LIST[rng.gen_range(0, WORD_LIST.len())]);
-
         use std::collections::hash_map::Entry;
-        match rooms.entry(room_name.clone()) {
-            Entry::Occupied(_) => continue,
-            Entry::Vacant(v) => {
-                // We'll funnel all Websocket communication through one
-                // MPSC queue per room, with websockets running in their
-                // own little tasks writing to the queue.
-                let (write, read) = unbounded();
-
-                let room = Arc::new(Mutex::new(Room {
-                    name: room_name.clone(),
-                    started: false,
-                    ended: false,
-                    connections: HashMap::new(),
-                    players: Vec::new(),
-                    active_player: 0,
-                    game: Game::new(),
-                }));
-                let handle = RoomHandle { write, room };
-                v.insert(handle.clone());
-                return (read, room_name, handle);
-            },
+        if let Entry::Vacant(v) = rooms.entry(room_name.clone()) {
+            v.insert(handle);
+            return room_name;
         }
     }
 }
@@ -523,19 +490,29 @@ async fn handle_connection(rooms: RoomList,
 
         // Try to interpret their message as joining a room
         match msg {
-            ClientMessage::CreateRoom(name) => {
+            ClientMessage::CreateRoom(player_name) => {
                 // Log to link address and player name
-                info!("[{}] Player {} sent CreateRoom", addr, name);
+                info!("[{}] Player {} sent CreateRoom", addr, player_name);
 
-                // Pick a new room name and insert it into the global hashmap
-                let map = &mut rooms.lock().unwrap();
-                let (pipe, room_name, mut handle) = new_room(map);
-                handle.add_player(name, addr, ws_stream)?;
+                // We'll funnel all Websocket communication through one
+                // MPSC queue per room, with websockets running in their
+                // own little tasks writing to the queue.
+                let (write, read) = unbounded();
+
+                let room = Arc::new(Mutex::new(Room::default()));
+                let mut handle = RoomHandle { write, room };
+                // Lock the global room list for a short time
+                let room_name = {
+                    let map = &mut rooms.lock().unwrap();
+                    next_room_name(map, handle.clone())
+                };
+                handle.room.lock().unwrap().name = room_name.clone();
+                handle.add_player(player_name, addr, ws_stream)?;
 
                 // This is the task which actually handles running
                 // each room, now that we've created it.
                 Task::spawn(async move {
-                    run_room(handle, pipe).await;
+                    handle.run(read).await;
                     info!("[{}] All players left, closing room.", room_name);
                     if let Err(e) = close_room.send(room_name.clone()).await {
                         error!("[{}] Failed to close room: {}", room_name, e);

@@ -118,24 +118,6 @@ impl Game {
         self.bag.shuffle(&mut thread_rng());
     }
 
-    pub fn new() -> Game {
-        use Color::*;
-        use Shape::*;
-        let mut bag = Vec::new();
-        for c in &[Orange, Yellow, Green, Red, Blue, Purple] {
-            for s in &[Clover, Star, Square, Diamond, Cross, Circle] {
-                for _ in 0..3 {
-                    bag.push((*s, *c));
-                }
-            }
-        }
-        bag.shuffle(&mut thread_rng());
-
-        Game {
-            board: HashMap::new(), bag
-        }
-    }
-
     pub fn deal(&mut self, n: usize) -> HashMap<Piece, usize> {
         let mut out = HashMap::new();
         for _ in 0..n {
@@ -271,5 +253,25 @@ impl Game {
             }
         }
         out
+    }
+}
+
+impl Default for Game {
+    fn default() -> Game {
+        use Color::*;
+        use Shape::*;
+        let mut bag = Vec::new();
+        for c in &[Orange, Yellow, Green, Red, Blue, Purple] {
+            for s in &[Clover, Star, Square, Diamond, Cross, Circle] {
+                for _ in 0..3 {
+                    bag.push((*s, *c));
+                }
+            }
+        }
+        bag.shuffle(&mut thread_rng());
+
+        Game {
+            board: HashMap::new(), bag
+        }
     }
 }
