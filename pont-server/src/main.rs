@@ -513,20 +513,17 @@ async fn handle_connection(rooms: RoomList,
                 };
                 handle.room.lock().unwrap().name = room_name.clone();
 
-                // This is the task which actually handles running
-                // each room, now that we've created it.
+                // To avoid spawning a new task, we'll use this task to run
+                // both the player's tx/rx queues *and* the room itself.
                 let mut h = handle.clone();
-                Task::spawn(async move {
-                    h.run_room(read).await;
-                    info!("[{}] All players left, closing room.", room_name);
-                    if let Err(e) = close_room.send(room_name.clone()).await {
-                        error!("[{}] Failed to close room: {}", room_name, e);
-                    }
-                }).detach();
+                join!(h.run_room(read),
+                      run_player(player_name, addr, handle, ws_stream));
 
-                // This task now becomes responsible for managing the
-                // player's tx and rx queues
-                run_player(player_name, addr, handle, ws_stream).await;
+                info!("[{}] All players left, closing room.", room_name);
+                if let Err(e) = close_room.send(room_name.clone()).await {
+                    error!("[{}] Failed to close room: {}", room_name, e);
+                }
+
                 return Ok(());
             },
             ClientMessage::JoinRoom(name, room_name) => {
