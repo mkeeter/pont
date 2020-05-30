@@ -1,5 +1,5 @@
 # About
-[Project homepage](https://mattkeeter.com/projects/pont)
+### [Project homepage](https://mattkeeter.com/projects/pont)
 
 `pont` is an online game based on
 [Qwirkle (by Mindware Games)](https://en.wikipedia.org/wiki/Qwirkle)
