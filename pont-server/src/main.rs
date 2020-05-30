@@ -47,64 +47,70 @@ struct RoomHandle {
 }
 
 impl RoomHandle {
-    fn add_player(&mut self, name: String, addr: SocketAddr,
-                  ws_stream: WebSocketStream<Async<TcpStream>>)
-        -> Result<()>
+    async fn run_room(&mut self,
+                      mut read: UnboundedReceiver<TaggedClientMessage>)
     {
-        let (incoming, outgoing) = ws_stream.split();
-
-        // Messages to the player's websocket are mediated by a queue,
-        // with a separate async task reading messages from the queue
-        // and pushing them down the websocket.  This lets us send messages to
-        // a player without blocking or needing an extra await in the
-        // main game loop, which would get awkward.
-        let (ws_tx, ws_rx) = unbounded();
-
-        let room = &mut self.room.lock().unwrap();
-        let room_name = room.name.clone();
-        let player_name = name.clone();
-        let write = self.write.clone();
-        Task::spawn(async move {
-            let ra = ws_rx
-                .map(|c| bincode::serialize(&c)
-                    .unwrap_or_else(|_| panic!("Could not encode {:?}", c)))
-                .map(WebsocketMessage::Binary)
-                .map(Ok)
-                .forward(incoming);
-            let rb = outgoing.map(|m|
-                match m {
-                    Ok(WebsocketMessage::Binary(t)) =>
-                        bincode::deserialize::<ClientMessage>(&t).ok(),
-                    _ => None,
-                })
-                .take_while(|m| future::ready(m.is_some()))
-                .map(|m| m.unwrap())
-                .chain(futures::stream::once(async {
-                    ClientMessage::Disconnected }))
-                .map(move |m| Ok((addr, m)))
-                .forward(write);
-            let (ra, rb) = join!(ra, rb);
-
-            if let Err(e) = ra {
-                error!("[{}] Got error {} from player {}'s rx queue",
-                       room_name, e, player_name);
-            }
-            if let Err(e) = rb {
-                error!("[{}] Got error {} from player {}'s tx queue",
-                       room_name, e, player_name);
-            }
-        }).detach();
-
-        room.add_player(addr, name, ws_tx)
-    }
-
-    async fn run(&mut self, mut read: UnboundedReceiver<TaggedClientMessage>) {
         while let Some((addr, msg)) = read.next().await {
             if !self.room.lock().unwrap().on_message(addr, msg) {
                 break;
             }
         }
     }
+}
+
+async fn run_player(player_name: String, addr: SocketAddr,
+                    handle: &mut RoomHandle,
+                    ws_stream: WebSocketStream<Async<TcpStream>>)
+{
+    let (incoming, outgoing) = ws_stream.split();
+
+    // Messages to the player's websocket are mediated by a queue,
+    // with a separate async task reading messages from the queue
+    // and pushing them down the websocket.  This lets us send messages to
+    // a player without blocking or needing an extra await in the
+    // main game loop, which would get awkward.
+    let (ws_tx, ws_rx) = unbounded();
+
+    let room_name = {
+        let room = &mut handle.room.lock().unwrap();
+        if let Err(e) = room.add_player(addr, player_name.clone(), ws_tx) {
+            error!("[{}] Failed to add player: {:?}",
+                   room.name, e);
+            return;
+        }
+        room.name.clone()
+    };
+
+    let write = handle.write.clone();
+    let ra = ws_rx
+        .map(|c| bincode::serialize(&c)
+            .unwrap_or_else(|_| panic!("Could not encode {:?}", c)))
+        .map(WebsocketMessage::Binary)
+        .map(Ok)
+        .forward(incoming);
+    let rb = outgoing.map(|m|
+        match m {
+            Ok(WebsocketMessage::Binary(t)) =>
+                bincode::deserialize::<ClientMessage>(&t).ok(),
+            _ => None,
+        })
+        .take_while(|m| future::ready(m.is_some()))
+        .map(|m| m.unwrap())
+        .chain(futures::stream::once(async {
+            ClientMessage::Disconnected }))
+        .map(move |m| Ok((addr, m)))
+        .forward(write);
+    let (ra, rb) = join!(ra, rb);
+
+    if let Err(e) = ra {
+        error!("[{}] Got error {} from player {}'s rx queue",
+               room_name, e, player_name);
+    }
+    if let Err(e) = rb {
+        error!("[{}] Got error {} from player {}'s tx queue",
+               room_name, e, player_name);
+    }
+    info!("[{}] Finished communications with {}", room_name, player_name);
 }
 
 type RoomList = Arc<Mutex<HashMap<String, RoomHandle>>>;
@@ -507,21 +513,21 @@ async fn handle_connection(rooms: RoomList,
                     next_room_name(map, handle.clone())
                 };
                 handle.room.lock().unwrap().name = room_name.clone();
-                handle.add_player(player_name, addr, ws_stream)?;
 
                 // This is the task which actually handles running
                 // each room, now that we've created it.
+                let mut h = handle.clone();
                 Task::spawn(async move {
-                    handle.run(read).await;
+                    h.run_room(read).await;
                     info!("[{}] All players left, closing room.", room_name);
                     if let Err(e) = close_room.send(room_name.clone()).await {
                         error!("[{}] Failed to close room: {}", room_name, e);
                     }
                 }).detach();
 
-                // We've passed everything to the spawned room task,
-                // so we return right away (rather than handling more
-                // messages from the websocket)
+                // This task now becomes responsible for managing the
+                // player's tx and rx queues
+                run_player(player_name, addr, &mut handle, ws_stream).await;
                 return Ok(());
             },
             ClientMessage::JoinRoom(name, room_name) => {
@@ -544,7 +550,8 @@ async fn handle_connection(rooms: RoomList,
                         // Happy case: add the player to the room, then return
                         // (because the connection will be handled by the room's
                         // task from here on out).
-                        return h.add_player(name, addr, ws_stream);
+                        run_player(name, addr, &mut h, ws_stream).await;
+                        return Ok(());
                     } else {
                         // Not enough pieces, so report an error to the client
                         let msg = ServerMessage::JoinFailed(
