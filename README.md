@@ -4,6 +4,8 @@
 `pont` is an online game based on
 [Qwirkle (by Mindware Games)](https://en.wikipedia.org/wiki/Qwirkle)
 
+![Screenshot](https://mattkeeter.com/projects/pont/screenshot.png)
+
 Notably, both the client and server are written in Rust;
 the only Javascript is a shim to load the WebAssembly module.
 
@@ -12,6 +14,10 @@ It's easiest to run the whole application on a single VM,
 using [NGINX](https://www.nginx.com/) to both serve static content
 and to act as a secure proxy for websocket communication.
 The latter means we don't need SSL support in the game server itself.
+
+The system looks something like this:
+
+![Screenshot](https://mattkeeter.com/projects/pont/diagram.svg)
 
 I'm hosting a copy of the game at
 [https://pont.mattkeeter.com](https://pont.mattkeeter.com),
