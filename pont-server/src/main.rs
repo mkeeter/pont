@@ -59,7 +59,7 @@ impl RoomHandle {
 }
 
 async fn run_player(player_name: String, addr: SocketAddr,
-                    handle: &mut RoomHandle,
+                    handle: RoomHandle,
                     ws_stream: WebSocketStream<Async<TcpStream>>)
 {
     let (incoming, outgoing) = ws_stream.split();
@@ -71,15 +71,14 @@ async fn run_player(player_name: String, addr: SocketAddr,
     // main game loop, which would get awkward.
     let (ws_tx, ws_rx) = unbounded();
 
-    let room_name = {
+    {   // Briefly lock the room to add the player
         let room = &mut handle.room.lock().unwrap();
         if let Err(e) = room.add_player(addr, player_name.clone(), ws_tx) {
             error!("[{}] Failed to add player: {:?}",
                    room.name, e);
             return;
         }
-        room.name.clone()
-    };
+    }
 
     let write = handle.write.clone();
     let ra = ws_rx
@@ -104,13 +103,13 @@ async fn run_player(player_name: String, addr: SocketAddr,
 
     if let Err(e) = ra {
         error!("[{}] Got error {} from player {}'s rx queue",
-               room_name, e, player_name);
+               addr, e, player_name);
     }
     if let Err(e) = rb {
         error!("[{}] Got error {} from player {}'s tx queue",
-               room_name, e, player_name);
+               addr, e, player_name);
     }
-    info!("[{}] Finished communications with {}", room_name, player_name);
+    info!("[{}] Finished session with {}", addr, player_name);
 }
 
 type RoomList = Arc<Mutex<HashMap<String, RoomHandle>>>;
@@ -506,7 +505,7 @@ async fn handle_connection(rooms: RoomList,
                 let (write, read) = unbounded();
 
                 let room = Arc::new(Mutex::new(Room::default()));
-                let mut handle = RoomHandle { write, room };
+                let handle = RoomHandle { write, room };
                 // Lock the global room list for a short time
                 let room_name = {
                     let map = &mut rooms.lock().unwrap();
@@ -527,7 +526,7 @@ async fn handle_connection(rooms: RoomList,
 
                 // This task now becomes responsible for managing the
                 // player's tx and rx queues
-                run_player(player_name, addr, &mut handle, ws_stream).await;
+                run_player(player_name, addr, handle, ws_stream).await;
                 return Ok(());
             },
             ClientMessage::JoinRoom(name, room_name) => {
@@ -545,12 +544,11 @@ async fn handle_connection(rooms: RoomList,
 
                 // If we tried to join an existing room, then check that there
                 // are enough pieces in the bag to deal a full hand.
-                if let Some(mut h) = handle {
-                    if h.room.lock().unwrap().game.bag.len() > 0 {
-                        // Happy case: add the player to the room, then return
-                        // (because the connection will be handled by the room's
-                        // task from here on out).
-                        run_player(name, addr, &mut h, ws_stream).await;
+                if let Some(h) = handle {
+                    if !h.room.lock().unwrap().game.bag.is_empty() {
+                        // Happy case: add the player to the room, then switch
+                        // to running the player's communication task
+                        run_player(name, addr, h, ws_stream).await;
                         return Ok(());
                     } else {
                         // Not enough pieces, so report an error to the client
