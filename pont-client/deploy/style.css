@@ -342,6 +342,10 @@ div#footer p {
     color: var(--dark4);
 }
 
-a.about {
+div#footer a.padded {
     margin-right: 20px;
+}
+
+a {
+    color: var(--dark4);
 }
