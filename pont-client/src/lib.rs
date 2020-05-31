@@ -1721,48 +1721,23 @@ pub fn main() -> JsError {
     let href = location.href()?;
     let hostname = location.hostname()?;
 
-    // Request the URL for the websocket server
-    let url = format!("{}/ws", href);
-    let request = Request::new_with_str(&url)?;
-    let fetch = window.fetch_with_request(&request);
+    // Pick the port based on the connection type
     let (ws_protocol, ws_port) = if location.protocol()? == "https:" {
         ("wss", 8081)
     } else {
         ("ws",  8080)
     };
-
-    let text_cb = Closure::wrap(Box::new(move |text: JsValue| {
-        console_log!("{:?}", text);
-        start(text).expect("Could not start app");
-    }) as Box<dyn FnMut(JsValue)>);
-    let fetch_cb = Closure::wrap(Box::new(move |e: JsValue| {
-        console_log!("{:?}", e);
-        let r: Response = e.dyn_into()
-            .expect("Could not cast to response");
-        if r.ok() {
-            let _ = r.text()
-                .expect("Could not create text() promise")
-                .then(&text_cb);
-        } else {
-            start(JsValue::from_str(
-                    &format!("{}://{}:{}", ws_protocol, hostname, ws_port)))
-                .expect("Could not start with default hostname");
-        }
-    }) as Box<dyn FnMut(JsValue)>);
-
-    let _ = fetch.then(&fetch_cb);
-    fetch_cb.forget();
+    let hostname = format!("{}://{}:{}", ws_protocol, hostname, ws_port);
+    start(&hostname);
 
     Ok(())
 }
 
-fn start(text: JsValue) -> JsError {
+fn start(hostname: &str) -> JsError {
     let doc = web_sys::window()
         .expect("no global `window` exists")
         .document()
         .expect("should have a document on window");
-    let hostname = text.as_string()
-        .expect("Could not convert hostname to string");
     console_log!("Connecting to websocket at {}", hostname);
     let ws = WebSocket::new(&hostname)?;
     doc.get_element_by_id(
