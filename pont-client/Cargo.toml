@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Matt Keeter"]
 edition = "2018"
 build = "build.rs"
+license = "MIT OR Apache-2.0"
 
 [lib]
 crate-type = ["cdylib"]
