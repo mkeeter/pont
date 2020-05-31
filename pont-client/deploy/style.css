@@ -103,6 +103,10 @@ form button {
 span#revhash {
     font-family: Inconsolata, "Courier New", monospace;
 }
+span#room_name {
+    margin-left: 10px;
+    font-family: Inconsolata, "Courier New", monospace;
+}
 
 form:invalid button {
     color: var(--dark4);
