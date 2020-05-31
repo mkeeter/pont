@@ -77,6 +77,8 @@ cargo run --release
 (leave this in a `screen` session for easy persistence!)
 
 # License
+© 2020 [Matt Keeter](https://mattkeeter.com)
+
 Licensed under either of
 
  * Apache License, Version 2.0
