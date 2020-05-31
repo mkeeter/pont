@@ -38,8 +38,6 @@ features = [
   'Performance',
   'PointerEvent',
   'ProgressEvent',
-  'Request',
-  'Response',
   'SvgElement',
   'SvgGraphicsElement',
   'SvgMatrix',

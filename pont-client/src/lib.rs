@@ -19,8 +19,6 @@ use web_sys::{
     MessageEvent,
     PointerEvent,
     ProgressEvent,
-    Request,
-    Response,
     SvgGraphicsElement,
     WebSocket,
 };
@@ -1718,7 +1716,6 @@ pub fn main() -> JsError {
 
     let location = doc.location()
         .expect("Could not get doc location");
-    let href = location.href()?;
     let hostname = location.hostname()?;
 
     // Pick the port based on the connection type
@@ -1728,12 +1725,7 @@ pub fn main() -> JsError {
         ("ws",  8080)
     };
     let hostname = format!("{}://{}:{}", ws_protocol, hostname, ws_port);
-    start(&hostname);
 
-    Ok(())
-}
-
-fn start(hostname: &str) -> JsError {
     let doc = web_sys::window()
         .expect("no global `window` exists")
         .document()
