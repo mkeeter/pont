@@ -1,0 +1,96 @@
+<html>
+    <head>
+        <meta content="text/html;charset=utf-8" http-equiv="Content-Type"/>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Pont Rules</title>
+        <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.13.0/css/all.min.css" rel="stylesheet">
+        <link href="https://fonts.googleapis.com/css2?family=Lato&display=swap" rel="stylesheet"> 
+        <link href="style.css" rel="stylesheet">
+    </head>
+    <body id="rules">
+        <h1>Rules</h1>
+        <h2>Joining a game</h2>
+        <p>Gameplay is split into <i>rooms</i>,
+        which are identified by a three-word code
+        (assigned by the server).</p>
+        <p>To create a new room, enter your name and click "Create new room"
+        (or press Enter).  Your room's code will be in the top left;
+        send it to your friends.</p>
+        <p>To join a room, enter your name and the code that your friend
+        send you, then click "Join existing room" (or press Enter).</p>
+
+        <h2>Taking your turn</h2>
+        <p>On each turn, you may either <i>place</i> pieces on the board or <i>exchange</i> pieces with the bag.</p>
+        <h2>Placing pieces</h2>
+        <p>
+        Pieces must be placed so that each connected row or column shares either a shape or a color, without duplicates.
+        In the example below, all tiles in the row are <i>orange</i>, and all tiles in the column are <i>X shaped</i>.
+        </p>
+        <svg class="example" width="100" height="100" viewBox="50 70 60 50">
+        <g class="shape-orange piece" transform="translate(70 80)"><rect class="tile" width="9.5" height="9.5" x="0.25" y="0.25"></rect><polygon points="2,2 3.5,5 2,8 5,6.5 8,8 6.5,5 8,2 5,3.5" class="color"></polygon><polygon points="0.5,0.5 3,0.5 0.5,3" class="corner color"></polygon><polygon points="9.5,9.5 7,9.5 9.5,7" class="corner color"></polygon></g><g class="shape-orange piece" transform="translate(80 80)"><rect class="tile" width="9.5" height="9.5" x="0.25" y="0.25"></rect><circle r="3.0" cx="5.0" cy="5.0" class="color"></circle><polygon points="0.5,0.5 3,0.5 0.5,3" class="corner color"></polygon><polygon points="9.5,9.5 7,9.5 9.5,7" class="corner color"></polygon></g><g class="shape-green piece" transform="translate(70 90)"><rect class="tile" width="9.5" height="9.5" x="0.25" y="0.25"></rect><polygon points="2,2 3.5,5 2,8 5,6.5 8,8 6.5,5 8,2 5,3.5" class="color"></polygon><polygon points="9.5,9.5 7,9.5 9.5,7" class="corner color"></polygon></g><g class="shape-yellow piece" transform="translate(70 100)"><rect class="tile" width="9.5" height="9.5" x="0.25" y="0.25"></rect><polygon points="2,2 3.5,5 2,8 5,6.5 8,8 6.5,5 8,2 5,3.5" class="color"></polygon><polygon points="0.5,0.5 3,0.5 0.5,3" class="corner color"></polygon></g><g class="shape-orange piece" transform="translate(90 80)"><rect class="tile" width="9.5" height="9.5" x="0.25" y="0.25"></rect><g class="color"><circle r="1.5" cx="5" cy="3"></circle><circle r="1.5" cx="5" cy="7"></circle><circle r="1.5" cx="3" cy="5"></circle><circle r="1.5" cx="7" cy="5"></circle><rect width="4.0" height="3.0" x="3.0" y="3.5"></rect><rect width="3.0" height="4.0" x="3.5" y="3.0"></rect></g><polygon points="0.5,0.5 3,0.5 0.5,3" class="corner color"></polygon><polygon points="9.5,9.5 7,9.5 9.5,7" class="corner color"></polygon></g>
+        </svg>
+
+        <p>
+        Each move may only contribute to <i>one</i> connected row or column.
+        The move below is invalid because the two pieces are not contributing to the same line.
+        </p>
+
+        <svg class="example" width="100" height="100" viewBox="50 70 60 50">
+        <g class="shape-orange placed" transform="translate(70 80)"><rect class="tile" width="9.5" height="9.5" x="0.25" y="0.25"></rect><polygon points="2,2 3.5,5 2,8 5,6.5 8,8 6.5,5 8,2 5,3.5" class="color"></polygon><polygon points="0.5,0.5 3,0.5 0.5,3" class="corner color"></polygon><polygon points="9.5,9.5 7,9.5 9.5,7" class="corner color"></polygon></g><g class="shape-orange placed" transform="translate(80 80)"><rect class="tile" width="9.5" height="9.5" x="0.25" y="0.25"></rect><circle r="3.0" cx="5.0" cy="5.0" class="color"></circle><polygon points="0.5,0.5 3,0.5 0.5,3" class="corner color"></polygon><polygon points="9.5,9.5 7,9.5 9.5,7" class="corner color"></polygon></g><g class="shape-green placed" transform="translate(70 90)"><rect class="tile" width="9.5" height="9.5" x="0.25" y="0.25"></rect><polygon points="2,2 3.5,5 2,8 5,6.5 8,8 6.5,5 8,2 5,3.5" class="color"></polygon><polygon points="9.5,9.5 7,9.5 9.5,7" class="corner color"></polygon></g><g class="shape-yellow placed" transform="translate(70 100)"><rect class="tile" width="9.5" height="9.5" x="0.25" y="0.25"></rect><polygon points="2,2 3.5,5 2,8 5,6.5 8,8 6.5,5 8,2 5,3.5" class="color"></polygon><polygon points="0.5,0.5 3,0.5 0.5,3" class="corner color"></polygon></g><g class="shape-orange placed" transform="translate(90 80)"><rect class="tile" width="9.5" height="9.5" x="0.25" y="0.25"></rect><g class="color"><circle r="1.5" cx="5" cy="3"></circle><circle r="1.5" cx="5" cy="7"></circle><circle r="1.5" cx="3" cy="5"></circle><circle r="1.5" cx="7" cy="5"></circle><rect width="4.0" height="3.0" x="3.0" y="3.5"></rect><rect width="3.0" height="4.0" x="3.5" y="3.0"></rect></g><polygon points="0.5,0.5 3,0.5 0.5,3" class="corner color"></polygon><polygon points="9.5,9.5 7,9.5 9.5,7" class="corner color"></polygon></g><g class="shape-green piece invalid" transform="translate(90 90)"><rect class="tile" width="9.5" height="9.5" x="0.25" y="0.25"></rect><g class="color"><circle r="1.5" cx="5" cy="3"></circle><circle r="1.5" cx="5" cy="7"></circle><circle r="1.5" cx="3" cy="5"></circle><circle r="1.5" cx="7" cy="5"></circle><rect width="4.0" height="3.0" x="3.0" y="3.5"></rect><rect width="3.0" height="4.0" x="3.5" y="3.0"></rect></g><polygon points="9.5,9.5 7,9.5 9.5,7" class="corner color"></polygon></g><g class="shape-blue piece invalid" transform="translate(60 100)"><rect class="tile" width="9.5" height="9.5" x="0.25" y="0.25"></rect><polygon points="2,2 3.5,5 2,8 5,6.5 8,8 6.5,5 8,2 5,3.5" class="color"></polygon><polygon points="0.5,9.5 3,9.5 0.5,7" class="corner color"></polygon></g></g>
+        </svg>
+
+        <p>There are six colors and six shapes, so each connected line
+        cannot contain more than six pieces (since duplicates are not allowed).</p>
+
+        <h2>Exchanging pieces</h2>
+        <p>Exchanging pieces lets you swap up to six pieces.  This ends your turn.</p>
+        <p>Near the end of the game, you may not be able to exchange your entire hand (if the bag has fewer than six pieces left)</p>
+
+        <h2>Scoring</h2>
+        <p>
+        Each move scores one point for each tile in a line that is touched by the move.
+        The move below adds a tile, producing a line of length 4,
+        and therefore scores 4 points.
+        </p>
+
+        <svg class="example" width="100" height="100" viewBox="50 70 60 50">
+        <g class="shape-orange placed" transform="translate(70 80)"><rect class="tile" width="9.5" height="9.5" x="0.25" y="0.25"></rect><polygon points="2,2 3.5,5 2,8 5,6.5 8,8 6.5,5 8,2 5,3.5" class="color"></polygon><polygon points="0.5,0.5 3,0.5 0.5,3" class="corner color"></polygon><polygon points="9.5,9.5 7,9.5 9.5,7" class="corner color"></polygon></g><g class="shape-orange placed" transform="translate(80 80)"><rect class="tile" width="9.5" height="9.5" x="0.25" y="0.25"></rect><circle r="3.0" cx="5.0" cy="5.0" class="color"></circle><polygon points="0.5,0.5 3,0.5 0.5,3" class="corner color"></polygon><polygon points="9.5,9.5 7,9.5 9.5,7" class="corner color"></polygon></g><g class="shape-green placed" transform="translate(70 90)"><rect class="tile" width="9.5" height="9.5" x="0.25" y="0.25"></rect><polygon points="2,2 3.5,5 2,8 5,6.5 8,8 6.5,5 8,2 5,3.5" class="color"></polygon><polygon points="9.5,9.5 7,9.5 9.5,7" class="corner color"></polygon></g><g class="shape-yellow placed" transform="translate(70 100)"><rect class="tile" width="9.5" height="9.5" x="0.25" y="0.25"></rect><polygon points="2,2 3.5,5 2,8 5,6.5 8,8 6.5,5 8,2 5,3.5" class="color"></polygon><polygon points="0.5,0.5 3,0.5 0.5,3" class="corner color"></polygon></g><g class="shape-orange placed" transform="translate(90 80)"><rect class="tile" width="9.5" height="9.5" x="0.25" y="0.25"></rect><g class="color"><circle r="1.5" cx="5" cy="3"></circle><circle r="1.5" cx="5" cy="7"></circle><circle r="1.5" cx="3" cy="5"></circle><circle r="1.5" cx="7" cy="5"></circle><rect width="4.0" height="3.0" x="3.0" y="3.5"></rect><rect width="3.0" height="4.0" x="3.5" y="3.0"></rect></g><polygon points="0.5,0.5 3,0.5 0.5,3" class="corner color"></polygon><polygon points="9.5,9.5 7,9.5 9.5,7" class="corner color"></polygon></g><g class="shape-orange piece" transform="translate(100 80)"><rect class="tile" width="9.5" height="9.5" x="0.25" y="0.25"></rect><g class="color"><polygon points="3,3 4,5 3,7 5,6 7,7 6,5 7,3 5,4"></polygon><polygon points="1,5 4,6 5,9 6,6 9,5 6,4 5,1 4,4"></polygon></g><polygon points="0.5,0.5 3,0.5 0.5,3" class="corner color"></polygon><polygon points="9.5,9.5 7,9.5 9.5,7" class="corner color"></polygon></g>
+        </svg>
+
+        <p>It's possible for a move to contribute to more than one line.
+        The move below scores 3 points for the horizontal (green) line,
+        plus 2 points for the vertical (circles) line, for a total of 5 points.
+        </p>
+
+        <svg class="example" width="100" height="100" viewBox="50 70 60 50">
+        <g class="shape-orange placed" transform="translate(70 80)"><rect class="tile" width="9.5" height="9.5" x="0.25" y="0.25"></rect><polygon points="2,2 3.5,5 2,8 5,6.5 8,8 6.5,5 8,2 5,3.5" class="color"></polygon><polygon points="0.5,0.5 3,0.5 0.5,3" class="corner color"></polygon><polygon points="9.5,9.5 7,9.5 9.5,7" class="corner color"></polygon></g><g class="shape-orange placed" transform="translate(80 80)"><rect class="tile" width="9.5" height="9.5" x="0.25" y="0.25"></rect><circle r="3.0" cx="5.0" cy="5.0" class="color"></circle><polygon points="0.5,0.5 3,0.5 0.5,3" class="corner color"></polygon><polygon points="9.5,9.5 7,9.5 9.5,7" class="corner color"></polygon></g><g class="shape-green placed" transform="translate(70 90)"><rect class="tile" width="9.5" height="9.5" x="0.25" y="0.25"></rect><polygon points="2,2 3.5,5 2,8 5,6.5 8,8 6.5,5 8,2 5,3.5" class="color"></polygon><polygon points="9.5,9.5 7,9.5 9.5,7" class="corner color"></polygon></g><g class="shape-yellow placed" transform="translate(70 100)"><rect class="tile" width="9.5" height="9.5" x="0.25" y="0.25"></rect><polygon points="2,2 3.5,5 2,8 5,6.5 8,8 6.5,5 8,2 5,3.5" class="color"></polygon><polygon points="0.5,0.5 3,0.5 0.5,3" class="corner color"></polygon></g><g class="shape-orange placed" transform="translate(90 80)"><rect class="tile" width="9.5" height="9.5" x="0.25" y="0.25"></rect><g class="color"><circle r="1.5" cx="5" cy="3"></circle><circle r="1.5" cx="5" cy="7"></circle><circle r="1.5" cx="3" cy="5"></circle><circle r="1.5" cx="7" cy="5"></circle><rect width="4.0" height="3.0" x="3.0" y="3.5"></rect><rect width="3.0" height="4.0" x="3.5" y="3.0"></rect></g><polygon points="0.5,0.5 3,0.5 0.5,3" class="corner color"></polygon><polygon points="9.5,9.5 7,9.5 9.5,7" class="corner color"></polygon></g><g class="shape-green piece" transform="translate(80 90)"><rect class="tile" width="9.5" height="9.5" x="0.25" y="0.25"></rect><circle r="3.0" cx="5.0" cy="5.0" class="color"></circle><polygon points="9.5,9.5 7,9.5 9.5,7" class="corner color"></polygon></g><g class="shape-green piece" transform="translate(60 90)"><rect class="tile" width="9.5" height="9.5" x="0.25" y="0.25"></rect><rect width="6.0" height="6.0" x="2.0" y="2.0" class="color"></rect><polygon points="9.5,9.5 7,9.5 9.5,7" class="corner color"></polygon></g>
+        </svg>
+
+        <p>Completing a line gives a 6-point bonus,
+        in addition to the 6 points from the line itself.
+        The move below is worth 12 points.
+        </p>
+        <svg class="example" width="100" height="100" viewBox="50 70 60 50">
+        <g class="shape-orange placed" transform="translate(70 80)"><rect class="tile" width="9.5" height="9.5" x="0.25" y="0.25"></rect><polygon points="2,2 3.5,5 2,8 5,6.5 8,8 6.5,5 8,2 5,3.5" class="color"></polygon><polygon points="0.5,0.5 3,0.5 0.5,3" class="corner color"></polygon><polygon points="9.5,9.5 7,9.5 9.5,7" class="corner color"></polygon></g><g class="shape-orange placed" transform="translate(80 80)"><rect class="tile" width="9.5" height="9.5" x="0.25" y="0.25"></rect><circle r="3.0" cx="5.0" cy="5.0" class="color"></circle><polygon points="0.5,0.5 3,0.5 0.5,3" class="corner color"></polygon><polygon points="9.5,9.5 7,9.5 9.5,7" class="corner color"></polygon></g><g class="shape-green placed" transform="translate(70 90)"><rect class="tile" width="9.5" height="9.5" x="0.25" y="0.25"></rect><polygon points="2,2 3.5,5 2,8 5,6.5 8,8 6.5,5 8,2 5,3.5" class="color"></polygon><polygon points="9.5,9.5 7,9.5 9.5,7" class="corner color"></polygon></g><g class="shape-yellow placed" transform="translate(70 100)"><rect class="tile" width="9.5" height="9.5" x="0.25" y="0.25"></rect><polygon points="2,2 3.5,5 2,8 5,6.5 8,8 6.5,5 8,2 5,3.5" class="color"></polygon><polygon points="0.5,0.5 3,0.5 0.5,3" class="corner color"></polygon></g><g class="shape-orange placed" transform="translate(90 80)"><rect class="tile" width="9.5" height="9.5" x="0.25" y="0.25"></rect><g class="color"><circle r="1.5" cx="5" cy="3"></circle><circle r="1.5" cx="5" cy="7"></circle><circle r="1.5" cx="3" cy="5"></circle><circle r="1.5" cx="7" cy="5"></circle><rect width="4.0" height="3.0" x="3.0" y="3.5"></rect><rect width="3.0" height="4.0" x="3.5" y="3.0"></rect></g><polygon points="0.5,0.5 3,0.5 0.5,3" class="corner color"></polygon><polygon points="9.5,9.5 7,9.5 9.5,7" class="corner color"></polygon></g><g class="shape-orange piece" transform="translate(100 80)"><rect class="tile" width="9.5" height="9.5" x="0.25" y="0.25"></rect><rect width="6.0" height="6.0" x="2.0" y="2.0" class="color"></rect><polygon points="0.5,0.5 3,0.5 0.5,3" class="corner color"></polygon><polygon points="9.5,9.5 7,9.5 9.5,7" class="corner color"></polygon></g><g class="shape-orange piece" transform="translate(60 80)"><rect class="tile" width="9.5" height="9.5" x="0.25" y="0.25"></rect><polygon points="2,5 5,8 8,5 5,2" class="color"></polygon><polygon points="0.5,0.5 3,0.5 0.5,3" class="corner color"></polygon><polygon points="9.5,9.5 7,9.5 9.5,7" class="corner color"></polygon></g><g class="shape-orange piece" transform="translate(50 80)"><rect class="tile" width="9.5" height="9.5" x="0.25" y="0.25"></rect><g class="color"><polygon points="3,3 4,5 3,7 5,6 7,7 6,5 7,3 5,4"></polygon><polygon points="1,5 4,6 5,9 6,6 9,5 6,4 5,1 4,4"></polygon></g><polygon points="0.5,0.5 3,0.5 0.5,3" class="corner color"></polygon><polygon points="9.5,9.5 7,9.5 9.5,7" class="corner color"></polygon></g>
+        </svg>
+
+        <h2>Ending the game</h2>
+        <p>The game ends with there are no pieces left in the bag,
+        and a player has emptied their hand.</p>
+
+        <p>The player who ends the game (by emptying their hand)
+        scores a 6-point bonus.</p>
+
+            <div id="footer">
+                <p>© 2020 <a href="https://mattkeeter.com">Matt Keeter</a></p>
+                <p>
+                    <a href="index.html"><i class="fa fa-play-circle"></i></a>
+                    <a href="index.html" class="padded">Play</i></a>
+                    <a href="https://mattkeeter.com/projects/pont"><i class="fas fa-home"></i></a>
+                    <a href="https://mattkeeter.com/projects/pont" class="padded">About</a>
+                    <a href="https://github.com/mkeeter/pont"><i class="fab fa-github"></i></a>
+                    <a href="https://github.com/mkeeter/pont">Source</a>
+                </p>
+            </div>
+        </body>
+</html>

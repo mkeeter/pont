@@ -21,7 +21,7 @@
 }
 
 body {
-    font-family: Inconsolata, "Courier New", monospace;
+    font-family: Lato, sans-serif;
     font-size: 16px;
     color: var(--dark2);
     margin-left: 20px;
@@ -34,7 +34,7 @@ div.information {
 }
 
 input {
-    font-family: Inconsolata, "Courier New", monospace;
+    font-family: Lato, sans-serif;
     font-size: 16px;
     background-color: var(--light0);
     border:1px solid var(--dark4);
@@ -96,8 +96,12 @@ form button {
     border-radius: 5px;
     transition: border-radius 0.1s;
     padding: 10px 20px;
-    font-family: Inconsolata, "Courier New", monospace;
+    font-family: Lato, sans-serif;
     font-size: 16px;
+}
+
+span#revhash {
+    font-family: Inconsolata, "Courier New", monospace;
 }
 
 form:invalid button {
@@ -348,4 +352,13 @@ div#footer a.padded {
 
 a {
     color: var(--dark4);
+}
+
+/******************************************************************************/
+
+svg.example {
+    width: 75%;
+    height: 250px;
+    border:1px solid var(--dark4);
+    background-color: var(--light0);
 }
