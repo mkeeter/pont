@@ -560,14 +560,13 @@ impl Board {
             let (pos, drop_target) = self.drop_target(&evt)?;
             d.target.set_attribute("transform",
                                    &format!("translate({} {})", pos.0, pos.1))?;
-            match drop_target {
-                DropTarget::DropToGrid(gx, gy) => {
-                    d.shadow.set_attribute(
-                        "transform", &format!("translate({} {})",
-                             gx as f32 * 10.0, gy as f32 * 10.0))?;
-                    d.shadow.set_attribute("visibility", "visible")
-                },
-                _ => d.shadow.set_attribute("visibility", "hidden")
+            if let DropTarget::DropToGrid(gx, gy) = drop_target {
+                d.shadow.set_attribute(
+                    "transform", &format!("translate({} {})",
+                         gx as f32 * 10.0, gy as f32 * 10.0))?;
+                d.shadow.set_attribute("visibility", "visible")
+            } else {
+                d.shadow.set_attribute("visibility", "hidden")
             }
         } else {
             Err(JsValue::from_str("Invalid state (pointer move)"))
