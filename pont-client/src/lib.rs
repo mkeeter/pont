@@ -638,6 +638,7 @@ impl Board {
                     }))
                 },
                 DropTarget::Exchange => {
+                    self.pan_group.remove_child(&d.shadow)?;
                     self.exchange_list.push(d.hand_index);
                     d.target.set_attribute("visibility", "hidden")?;
                     self.update_exchange_div(true)?;
