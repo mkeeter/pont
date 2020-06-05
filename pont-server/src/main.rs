@@ -10,7 +10,7 @@ use rand::Rng;
 use log::{error, info, trace, warn};
 use env_logger::Env;
 
-use futures::{future, join};
+use futures::{future, future::{join}};
 use futures::stream::StreamExt;
 use futures::sink::SinkExt;
 use futures::channel::mpsc::{unbounded, UnboundedSender, UnboundedReceiver};
@@ -99,7 +99,7 @@ async fn run_player(player_name: String, addr: SocketAddr,
             ClientMessage::Disconnected }))
         .map(move |m| Ok((addr, m)))
         .forward(write);
-    let (ra, rb) = join!(ra, rb);
+    let (ra, rb) = join(ra, rb).await;
 
     if let Err(e) = ra {
         error!("[{}] Got error {} from player {}'s rx queue",
@@ -516,8 +516,8 @@ async fn handle_connection(rooms: RoomList,
                 // To avoid spawning a new task, we'll use this task to run
                 // both the player's tx/rx queues *and* the room itself.
                 let mut h = handle.clone();
-                join!(h.run_room(read),
-                      run_player(player_name, addr, handle, ws_stream));
+                join(h.run_room(read),
+                     run_player(player_name, addr, handle, ws_stream)).await;
 
                 info!("[{}] All players left, closing room.", room_name);
                 if let Err(e) = close_room.send(room_name.clone()).await {
