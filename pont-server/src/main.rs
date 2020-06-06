@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 use rand::Rng;
-use log::{error, info, trace, warn};
+use log::{error, warn, info, debug, trace};
 use env_logger::Env;
 
 use futures::{future, future::{join}};
@@ -283,8 +283,8 @@ impl Room {
                 self.active_player = (self.active_player + 1) %
                                       self.players.len();
             }
-            info!("[{}] Active player changed to {}", self.name,
-                  self.players[self.active_player].name);
+            debug!("[{}] Active player changed to {}", self.name,
+                   self.players[self.active_player].name);
 
             self.broadcast(ServerMessage::PlayerTurn(self.active_player));
         }
@@ -497,7 +497,6 @@ async fn handle_connection(rooms: RoomList,
         match msg {
             ClientMessage::CreateRoom(player_name) => {
                 // Log to link address and player name
-                info!("[{}] Player {} sent CreateRoom", addr, player_name);
 
                 // We'll funnel all Websocket communication through one
                 // MPSC queue per room, with websockets running in their
@@ -511,6 +510,8 @@ async fn handle_connection(rooms: RoomList,
                     let map = &mut rooms.lock().unwrap();
                     next_room_name(map, handle.clone())
                 };
+                info!("[{}] Creating room '{}' for player {}",
+                      addr, room_name, player_name);
                 handle.room.lock().unwrap().name = room_name.clone();
 
                 // To avoid spawning a new task, we'll use this task to run
@@ -576,7 +577,7 @@ async fn handle_connection(rooms: RoomList,
 }
 
 fn main() -> Result<(), IoError> {
-    env_logger::from_env(Env::default().default_filter_or("pont_server=TRACE"))
+    env_logger::from_env(Env::default().default_filter_or("pont_server=INFO"))
         .init();
 
     // Create an executor thread pool.
@@ -635,7 +636,7 @@ fn main() -> Result<(), IoError> {
                 if let Err(e) = handle_connection(rooms, stream,
                                                   addr, close_room).await
                 {
-                    error!("Failed to handle connection from {}: {}", addr, e);
+                    warn!("Failed to handle connection from {}: {}", addr, e);
                 }
             }).detach();
         }
