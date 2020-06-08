@@ -579,7 +579,8 @@ impl Board {
             b.insert(*pos, self.hand[*index].0);
         }
         let mut invalid = Game::invalid(&b);
-        if !Game::is_linear(&self.tentative.keys().cloned().collect()) {
+        let play = self.tentative.keys().cloned().collect::<Vec<_>>();
+        if !Game::is_linear_connected(&b, &play) {
             for pos in self.tentative.keys() {
                 invalid.insert(*pos);
             }

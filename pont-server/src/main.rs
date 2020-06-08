@@ -324,8 +324,9 @@ impl Room {
         for (piece, x, y) in pieces.iter() {
             board.insert((*x, *y), *piece);
         }
+        let played = pieces.iter().map(|p| (p.1, p.2)).collect::<Vec<_>>();
         if !Game::invalid(&board).is_empty() ||
-           !Game::is_linear(&pieces.iter().map(|p| (p.1, p.2)).collect())
+           !Game::is_linear_connected(&board, &played)
         {
             warn!("[{}] Player {} tried to make an illegal move",
                   self.name, player.name);

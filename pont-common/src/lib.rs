@@ -163,14 +163,28 @@ impl Game {
         seen.len() == board.len()
     }
 
-    pub fn is_linear(board: &HashSet<(i32, i32)>) -> bool {
-        let mut x_positions = HashSet::new();
-        let mut y_positions = HashSet::new();
-        for (x, y) in board.iter() {
-            x_positions.insert(x);
-            y_positions.insert(y);
+    // Checks whether the given play is linear and connected
+    //
+    // The board must already include the pieces in played
+    pub fn is_linear_connected(board: &HashMap<(i32, i32), Piece>,
+                               played: &[(i32, i32)]) -> bool {
+        let xmin = played.iter().map(|p| p.0).min().unwrap_or(0);
+        let ymin = played.iter().map(|p| p.1).min().unwrap_or(0);
+        let xmax = played.iter().map(|p| p.0).max().unwrap_or(0);
+        let ymax = played.iter().map(|p| p.1).max().unwrap_or(0);
+
+        // Fail if the play isn't constrained to a single row/column
+        if xmin != xmax && ymin != ymax {
+            return false;
         }
-        x_positions.len() == 1 || y_positions.len() == 1
+        for x in xmin..=xmax {
+            for y in ymin..=ymax {
+                if !board.contains_key(&(x, y)) {
+                    return false;
+                }
+            }
+        }
+        true
     }
 
     fn explore_from<T>(board: &HashMap<(i32, i32), Piece>, f: T)
