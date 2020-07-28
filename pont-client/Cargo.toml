@@ -28,6 +28,7 @@ features = [
   'Element',
   'EventTarget',
   'FileReader',
+  'HtmlCollection',
   'HtmlElement',
   'HtmlButtonElement',
   'HtmlInputElement',
