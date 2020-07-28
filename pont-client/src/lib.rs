@@ -867,6 +867,7 @@ impl Board {
         let g = self.new_piece(p)?;
         self.pan_group.append_child(&g)?;
         g.class_list().add_1("placed")?;
+        g.class_list().add_1("played")?;
         g.set_attribute("transform",
                         &format!("translate({} {})", x * 10, y * 10))?;
 

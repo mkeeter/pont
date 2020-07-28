@@ -18,6 +18,8 @@
     --green: #5e5;
     --red: #f55;
     --dark-red: #922;
+
+	--played: #228b22;
 }
 
 body {
@@ -159,6 +161,9 @@ g.placed rect.tile {
     fill: var(--dark3);
     stroke-width: 0.5;
     stroke: var(--dark4);
+}
+g.played rect.tile {
+    fill: var(--played);
 }
 div#svg_div.nyt g.piece rect.tile {
     fill: var(--dark3);
