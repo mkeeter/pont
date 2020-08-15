@@ -880,7 +880,7 @@ impl Board {
             let p = prev_played.item(0).unwrap();
             p.class_list().remove_1("played");
         }
-    } 
+    }
 
     fn on_reject_button(&mut self, evt: Event) -> JsError {
         // Don't allow for any tricky business here
