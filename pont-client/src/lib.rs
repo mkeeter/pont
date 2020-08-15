@@ -874,12 +874,16 @@ impl Board {
         Ok(g)
     }
 
-    fn reset_played(&mut self) {
+    fn reset_played(&mut self) -> JsError {
         let prev_played = self.doc.get_elements_by_class_name("played");
-        for _i in 0..prev_played.length() {
-            let p = prev_played.item(0).unwrap();
-            p.class_list().remove_1("played");
+        // We empty out the collection by removing the 'played' class
+        while prev_played.length() > 0 {
+            prev_played.item(0)
+                .ok_or_else(|| JsValue::from_str("Could not get item"))?
+                .class_list()
+                .remove_1("played")?;
         }
+        Ok(())
     }
 
     fn on_reject_button(&mut self, evt: Event) -> JsError {
@@ -972,7 +976,7 @@ impl Board {
     }
 
     fn on_move_accepted(&mut self, dealt: &[Piece]) -> JsError {
-        self.reset_played();
+        self.reset_played()?;
         let mut placed = HashMap::new();
         for ((x, y), i) in self.tentative.drain() {
             placed.insert(i, (x, y));
@@ -1599,7 +1603,7 @@ impl Playing {
     }
 
     fn on_played(&mut self, pieces: &[(Piece, i32, i32)]) -> JsError {
-        self.board.reset_played();
+        self.board.reset_played()?;
         let mut anims = Vec::new();
         let t0 = get_time_ms();
         for (piece, x, y) in pieces {
