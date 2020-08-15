@@ -160,6 +160,10 @@ g.placed rect.tile {
     stroke-width: 0.5;
     stroke: var(--dark4);
 }
+g.played rect.tile {
+    fill: var(--dark4);
+    stroke: var(--light4);
+}
 div#svg_div.nyt g.piece rect.tile {
     fill: var(--dark3);
 }
