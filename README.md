@@ -53,7 +53,7 @@ sudo ufw allow 8081
 sudo ufw enable
 ```
 
-## Building the client webassembly file
+## Building the client WebAssembly file
 ```
 git clone https://github.com/mkeeter/pont.git
 cd pont/pont-client
