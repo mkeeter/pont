@@ -299,8 +299,10 @@ impl Board {
     fn set_my_turn(&mut self, is_my_turn: bool) -> JsError {
         if is_my_turn {
             self.svg_div.class_list().remove_1("nyt")?;
+            self.doc.body().unwrap().class_list().add_1("myturn")?;
         } else {
             self.svg_div.class_list().add_1("nyt")?;
+            self.doc.body().unwrap().class_list().remove_1("myturn")?;
         }
         self.update_exchange_div(is_my_turn)
     }
