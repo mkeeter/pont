@@ -193,6 +193,8 @@ pub struct Board {
     reject_button: HtmlButtonElement,
     exchange_div: Element,
 
+    tentative_score_span: Option<HtmlElement>,
+
     pointer_down_cb: JsClosure<PointerEvent>,
     pointer_move_cb: JsClosure<PointerEvent>,
     pointer_up_cb: JsClosure<PointerEvent>,
@@ -291,6 +293,7 @@ impl Board {
             reject_button,
             exchange_div,
             pieces_remaining: 0,
+            tentative_score_span: None,
         };
 
         Ok(out)
@@ -455,6 +458,7 @@ impl Board {
             }
             self.update_exchange_div(true)?;
             self.mark_invalid()?;
+            self.set_estimated_score();
             (hand_index, Some((x, y)))
         };
         target.class_list().remove_1("invalid")?;
@@ -573,6 +577,31 @@ impl Board {
         }
     }
 
+    fn get_score(&self) -> Option<u32> {
+        let mut g = Game {
+            board: self.grid.clone(),
+            bag: Vec::new(),
+        };
+        let ps = self.tentative.iter()
+            .map(|(pos, index)| (self.hand[*index].0, pos.0, pos.1))
+            .collect::<Vec<_>>();
+        g.play(&ps)
+    }
+
+    fn set_estimated_score(&self) {
+        if let Some(score) = self.get_score().filter(|s| *s > 0) {
+            self.tentative_score_span
+                .as_ref()
+                .unwrap()
+                .set_text_content(Some(&format!(" [+{}]", score)));
+        } else {
+            self.tentative_score_span
+                .as_ref()
+                .unwrap()
+                .set_text_content(Some(""));
+        }
+    }
+
     fn mark_invalid(&self) -> JsResult<bool> {
         let mut b = self.grid.clone();
         for (pos, index) in self.tentative.iter() {
@@ -652,6 +681,7 @@ impl Board {
                 },
             };
             self.mark_invalid()?;
+            self.set_estimated_score();
             self.update_exchange_div(true)?;
             if let Some(drag) = drag_anim {
                 self.state = BoardState::Animation(drag);
@@ -674,6 +704,7 @@ impl Board {
                         self.state = BoardState::Idle;
                         self.accept_button.set_disabled(!self.mark_invalid()?);
                         self.reject_button.set_disabled(false);
+                        self.set_estimated_score();
                     }
                 },
                 DragAnim::ReturnToHand(d) => {
@@ -687,6 +718,7 @@ impl Board {
                             self.accept_button.set_disabled(true);
                             self.reject_button.set_disabled(true);
                         }
+                        self.set_estimated_score();
                     }
                 },
                 DragAnim::ReturnAllToHand(d) => {
@@ -701,6 +733,7 @@ impl Board {
                         self.accept_button.set_disabled(true);
                         self.reject_button.set_disabled(true);
                         self.update_exchange_div(true)?;
+                        self.set_estimated_score();
                     }
                 },
                 DragAnim::ConsolidateHand(ConsolidateHand(d)) |
@@ -985,6 +1018,7 @@ impl Board {
         for i in self.exchange_list.drain(0..) {
             exchanged.insert(i);
         }
+        self.set_estimated_score();
 
         // We're going to shuffle pieces around now!
         let mut prev_hand = Vec::new();
@@ -1424,13 +1458,21 @@ impl Playing {
 
         for (i, (name, score, connected)) in players.iter().enumerate() {
             out.add_player_row(
-                if i == player_index {
-                    format!("{} (you)", name)
-                } else {
-                    name.to_string()
-                },
-                *score as usize, *connected)?;
+                name, *score as usize, *connected, i == player_index)?;
         }
+
+        let s = out.score_table.child_nodes()
+            .item(out.player_index as u32 + 3)
+            .expect("Could not get table row")
+            .child_nodes()
+            .item(2)
+            .expect("Could not get score value")
+            .child_nodes()
+            .item(1)
+            .expect("Could not get second span")
+            .dyn_into::<HtmlElement>()?;
+        out.board.tentative_score_span = Some(s);
+
         Ok(out)
     }
 
@@ -1467,8 +1509,8 @@ impl Playing {
         Ok(())
     }
 
-    fn add_player_row(&mut self, name: String, score: usize, connected: bool)
-        -> JsError
+    fn add_player_row(&mut self, name: &str, score: usize,
+                      connected: bool, is_you: bool) -> JsError
     {
         let tr = self.base.doc.create_element("tr")?;
         tr.set_class_name("player-row");
@@ -1480,11 +1522,21 @@ impl Playing {
         tr.append_child(&td)?;
 
         let td = self.base.doc.create_element("td")?;
-        td.set_text_content(Some(&name));
+        if is_you {
+            td.set_text_content(Some(&format!("{} (you)", name)));
+        } else {
+            td.set_text_content(Some(name));
+        }
         tr.append_child(&td)?;
 
         let td = self.base.doc.create_element("td")?;
-        td.set_text_content(Some(&score.to_string()));
+        let score_span = self.base.doc.create_element("span")?;
+        score_span.set_text_content(Some(&score.to_string()));
+        td.append_child(&score_span)?;
+        if is_you {
+            let new_score = self.base.doc.create_element("span")?;
+            td.append_child(&new_score)?;
+        }
         tr.append_child(&td)?;
 
         if !connected {
@@ -1492,7 +1544,7 @@ impl Playing {
         }
 
         self.score_table.append_child(&tr)?;
-        self.player_names.push(name);
+        self.player_names.push(name.to_string());
 
         Ok(())
     }
@@ -1509,7 +1561,7 @@ impl Playing {
 
     fn on_new_player(&mut self, name: &str) -> JsError {
         // Append a player to the bottom of the scores list
-        self.add_player_row(name.to_string(), 0, true)?;
+        self.add_player_row(name, 0, true, false)?;
         self.on_information(&format!("{} joined the room", name))
     }
 
@@ -1653,6 +1705,9 @@ impl Playing {
             .child_nodes()
             .item(2)
             .expect("Could not get score value")
+            .child_nodes()
+            .item(0)
+            .expect("Could not get first span")
             .set_text_content(Some(&total.to_string()));
         self.on_information(&format!("{} scored {} point{}",
             self.active_player_name(),
