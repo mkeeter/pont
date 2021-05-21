@@ -457,8 +457,8 @@ impl Board {
                 self.reject_button.set_disabled(true);
             }
             self.update_exchange_div(true)?;
-            self.mark_invalid()?;
-            self.set_estimated_score();
+            let valid = self.mark_invalid()?;
+            self.set_estimated_score(valid);
             (hand_index, Some((x, y)))
         };
         target.class_list().remove_1("invalid")?;
@@ -588,8 +588,8 @@ impl Board {
         g.play(&ps)
     }
 
-    fn set_estimated_score(&self) {
-        if let Some(score) = self.get_score().filter(|s| *s > 0) {
+    fn set_estimated_score(&self, valid: bool) {
+        if let Some(score) = self.get_score().filter(|s| *s > 0 && valid) {
             self.tentative_score_span
                 .as_ref()
                 .unwrap()
@@ -680,8 +680,8 @@ impl Board {
                     None
                 },
             };
-            self.mark_invalid()?;
-            self.set_estimated_score();
+            let valid = self.mark_invalid()?;
+            self.set_estimated_score(valid);
             self.update_exchange_div(true)?;
             if let Some(drag) = drag_anim {
                 self.state = BoardState::Animation(drag);
@@ -702,9 +702,10 @@ impl Board {
                     } else {
                         self.pan_group.remove_child(&d.shadow)?;
                         self.state = BoardState::Idle;
-                        self.accept_button.set_disabled(!self.mark_invalid()?);
+                        let valid = self.mark_invalid()?;
+                        self.accept_button.set_disabled(!valid);
                         self.reject_button.set_disabled(false);
-                        self.set_estimated_score();
+                        self.set_estimated_score(valid);
                     }
                 },
                 DragAnim::ReturnToHand(d) => {
@@ -712,13 +713,15 @@ impl Board {
                         self.request_animation_frame()?;
                     } else {
                         self.state = BoardState::Idle;
+                        let mut valid = true;
                         if !self.tentative.is_empty() {
-                            self.accept_button.set_disabled(!self.mark_invalid()?);
+                            valid = self.mark_invalid()?;
+                            self.accept_button.set_disabled(!valid);
                         } else if self.exchange_list.is_empty() {
                             self.accept_button.set_disabled(true);
                             self.reject_button.set_disabled(true);
                         }
-                        self.set_estimated_score();
+                        self.set_estimated_score(valid);
                     }
                 },
                 DragAnim::ReturnAllToHand(d) => {
@@ -733,7 +736,7 @@ impl Board {
                         self.accept_button.set_disabled(true);
                         self.reject_button.set_disabled(true);
                         self.update_exchange_div(true)?;
-                        self.set_estimated_score();
+                        self.set_estimated_score(false);
                     }
                 },
                 DragAnim::ConsolidateHand(ConsolidateHand(d)) |
@@ -1018,7 +1021,7 @@ impl Board {
         for i in self.exchange_list.drain(0..) {
             exchanged.insert(i);
         }
-        self.set_estimated_score();
+        self.set_estimated_score(false);
 
         // We're going to shuffle pieces around now!
         let mut prev_hand = Vec::new();
