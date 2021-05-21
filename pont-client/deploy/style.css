@@ -148,8 +148,10 @@ div#game {
 
 /* List of players */
 table#score_table {
+    table-layout: fixed;
     width: 100%;
     margin-bottom: 20px;
+    border-collapse: collapse;
 }
 th {
     border-bottom: 1px solid var(--dark4);
