@@ -87,10 +87,17 @@ async fn run_player(player_name: String, addr: SocketAddr,
         .map(WebsocketMessage::Binary)
         .map(Ok)
         .forward(incoming);
+
+    // Match the config for bincode::deserialize, plus 1M size limit
+    use bincode::Options;
+    let config = bincode::config::DefaultOptions::new()
+        .with_fixint_encoding()
+        .allow_trailing_bytes()
+        .with_limit(1024*1024);
     let rb = outgoing.map(|m|
         match m {
             Ok(WebsocketMessage::Binary(t)) =>
-                bincode::deserialize::<ClientMessage>(&t).ok(),
+                config.deserialize::<ClientMessage>(&t).ok(),
             _ => None,
         })
         .take_while(|m| future::ready(m.is_some()))
