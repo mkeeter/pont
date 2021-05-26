@@ -29,6 +29,10 @@ body {
     background-color: var(--light1);
 }
 
+body.myturn {
+    background-color: var(--light4);
+}
+
 div.information {
     font-size: 20px;
 }
