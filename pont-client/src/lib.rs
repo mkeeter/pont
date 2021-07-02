@@ -1157,6 +1157,8 @@ impl Board {
         if self.pieces_remaining < self.exchange_list.len() {
             // This will call update_exchange_div again, so we don't
             // need to run any of the code below.
+            //
+            // TODO: this will fail if the player is panning or holding a piece
             return self.on_reject_button(Event::new("dummy")?);
         }
 
