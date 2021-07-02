@@ -189,6 +189,7 @@ pub struct Board {
     grid: HashMap<(i32, i32), Piece>,
     tentative: HashMap<(i32, i32), usize>,
     exchange_list: Vec<usize>,
+    my_turn: bool,
     pieces_remaining: usize,
     hand: Vec<(Piece, Element)>,
 
@@ -283,6 +284,7 @@ impl Board {
             pan_offset: (0.0, 0.0),
             grid: HashMap::new(),
             tentative: HashMap::new(),
+            my_turn: false,
             exchange_list: Vec::new(),
             hand: Vec::new(),
             pointer_down_cb,
@@ -303,6 +305,7 @@ impl Board {
     }
 
     fn set_my_turn(&mut self, is_my_turn: bool) -> JsError {
+        self.my_turn = is_my_turn;
         if is_my_turn {
             self.svg_div.class_list().remove_1("nyt")?;
         } else {
@@ -508,6 +511,16 @@ impl Board {
                     **c = 0.0;
                 } else if **c > 190.0 {
                     **c = 190.0;
+                }
+            }
+            // If this isn't your turn, then you're only allowed to rearrange
+            // pieces within your rack, which we enforce by clamping x and y
+            if !self.my_turn {
+                if y < 175.0 {
+                    y = 175.0;
+                }
+                if x > 87.0 {
+                    x = 87.0;
                 }
             }
 
