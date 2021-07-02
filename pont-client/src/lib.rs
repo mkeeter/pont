@@ -136,21 +136,24 @@ struct DropToGrid {
 }
 
 #[derive(PartialEq)]
+struct ConsolidateHand(Vec<TileAnimation>);
+#[derive(PartialEq)]
 struct DropManyToGrid(Vec<TileAnimation>);
 #[derive(PartialEq)]
-struct ReturnToHand(TileAnimation);
+struct HandSwap(TileAnimation, TileAnimation);
 #[derive(PartialEq)]
 struct ReturnAllToHand(Vec<TileAnimation>);
 #[derive(PartialEq)]
-struct ConsolidateHand(Vec<TileAnimation>);
+struct ReturnToHand(TileAnimation);
 
 #[derive(PartialEq)]
 enum DragAnim {
-    DropToGrid(DropToGrid),
-    DropManyToGrid(DropManyToGrid),
-    ReturnToHand(ReturnToHand),
-    ReturnAllToHand(ReturnAllToHand),
     ConsolidateHand(ConsolidateHand),
+    DropManyToGrid(DropManyToGrid),
+    DropToGrid(DropToGrid),
+    HandSwap(HandSwap),
+    ReturnAllToHand(ReturnAllToHand),
+    ReturnToHand(ReturnToHand),
 }
 
 #[derive(PartialEq)]
@@ -165,7 +168,7 @@ enum DropTarget {
     DropToGrid(i32, i32),
     ReturnToGrid(i32, i32),
     Exchange,
-    ReturnToHand,
+    ReturnToHand(usize),
 }
 
 enum Move {
@@ -186,6 +189,7 @@ pub struct Board {
     grid: HashMap<(i32, i32), Piece>,
     tentative: HashMap<(i32, i32), usize>,
     exchange_list: Vec<usize>,
+    my_turn: bool,
     pieces_remaining: usize,
     hand: Vec<(Piece, Element)>,
 
@@ -280,6 +284,7 @@ impl Board {
             pan_offset: (0.0, 0.0),
             grid: HashMap::new(),
             tentative: HashMap::new(),
+            my_turn: false,
             exchange_list: Vec::new(),
             hand: Vec::new(),
             pointer_down_cb,
@@ -300,6 +305,7 @@ impl Board {
     }
 
     fn set_my_turn(&mut self, is_my_turn: bool) -> JsError {
+        self.my_turn = is_my_turn;
         if is_my_turn {
             self.svg_div.class_list().remove_1("nyt")?;
         } else {
@@ -507,6 +513,16 @@ impl Board {
                     **c = 190.0;
                 }
             }
+            // If this isn't your turn, then you're only allowed to rearrange
+            // pieces within your rack, which we enforce by clamping x and y
+            if !self.my_turn {
+                if y < 175.0 {
+                    y = 175.0;
+                }
+                if x > 87.0 {
+                    x = 87.0;
+                }
+            }
 
             // If we've started exchanging tiles, then prevent folks from
             // dragging onto the grid.
@@ -523,7 +539,7 @@ impl Board {
                 {
                     return Ok((pos, DropTarget::Exchange));
                 } else {
-                    return Ok((pos, DropTarget::ReturnToHand));
+                    return Ok((pos, DropTarget::ReturnToHand(((x + 2.5) / 15.0) as usize)));
                 }
             }
 
@@ -549,7 +565,7 @@ impl Board {
 
             // Otherwise, return to either the hand or the grid
             Ok((pos, match d.grid_origin {
-                None => DropTarget::ReturnToHand,
+                None => DropTarget::ReturnToHand(d.hand_index),
                 Some((gx, gy)) => DropTarget::ReturnToGrid(gx, gy),
             }))
         } else {
@@ -641,15 +657,64 @@ impl Board {
 
             let (pos, drop_target) = self.drop_target(&evt)?;
             let drag_anim = match drop_target {
-                DropTarget::ReturnToHand => {
+                DropTarget::ReturnToHand(i) => {
                     self.pan_group.remove_child(&d.shadow)?;
-                    Some(DragAnim::ReturnToHand(ReturnToHand(
-                        TileAnimation {
-                            target: d.target.clone(),
-                            start: pos,
-                            end: ((d.hand_index * 15 + 5) as f32, 185.0),
-                            t0: evt.time_stamp()
-                        })))
+                    console_log!("returning {} {}", i, d.hand_index);
+                    if i == d.hand_index || i >= self.hand.len() {
+                        Some(DragAnim::ReturnToHand(ReturnToHand(
+                            TileAnimation {
+                                target: d.target.clone(),
+                                start: pos,
+                                end: ((d.hand_index * 15 + 5) as f32, 185.0),
+                                t0: evt.time_stamp()
+                            })))
+                    } else {
+                        // Check to see if the target is staged in the grid
+                        // or exchange region, in which case, we do a slightly
+                        // modified animation
+                        let mut target_in_hand = true;
+                        for (_k, v) in self.tentative.iter_mut() {
+                            if *v == i {
+                                *v = d.hand_index;
+                                target_in_hand = false;
+                            }
+                        }
+                        for v in self.exchange_list.iter_mut() {
+                            if *v == i {
+                                *v = d.hand_index;
+                                target_in_hand = false;
+                            }
+                        }
+                        self.hand.swap(i, d.hand_index);
+
+                        // If the target is in the hand, then animate both
+                        // swapping places; otherwise, just animate the returned
+                        // piece (leaving the other piece on the board)
+                        if target_in_hand {
+                            Some(DragAnim::HandSwap(HandSwap(
+                                TileAnimation {
+                                    target: d.target.clone(),
+                                    start: pos,
+                                    end: ((i * 15 + 5) as f32, 185.0),
+                                    t0: evt.time_stamp()
+                                },
+                                TileAnimation {
+                                    target: self.hand[d.hand_index].1.clone(),
+                                    start: ((i * 15 + 5) as f32, 185.0),
+                                    end: ((d.hand_index * 15 + 5) as f32, 185.0),
+                                    t0: evt.time_stamp()
+                                },
+                            )))
+                        } else {
+                            Some(DragAnim::ReturnToHand(ReturnToHand(
+                                TileAnimation {
+                                    target: d.target.clone(),
+                                    start: pos,
+                                    end: ((i * 15 + 5) as f32, 185.0),
+                                    t0: evt.time_stamp()
+                                })))
+                        }
+                    }
                 },
                 DropTarget::DropToGrid(gx, gy) |
                 DropTarget::ReturnToGrid(gx, gy) => {
@@ -722,6 +787,19 @@ impl Board {
                             self.reject_button.set_disabled(true);
                         }
                         self.set_estimated_score(valid);
+                    }
+                },
+                DragAnim::HandSwap(HandSwap(a, b)) => {
+                    if a.run(t)? | b.run(t)? { // non short-circuiting or!
+                        self.request_animation_frame()?;
+                    } else {
+                        self.state = BoardState::Idle;
+                        if !self.tentative.is_empty() {
+                            self.accept_button.set_disabled(!self.mark_invalid()?);
+                        } else if self.exchange_list.is_empty() {
+                            self.accept_button.set_disabled(true);
+                            self.reject_button.set_disabled(true);
+                        }
                     }
                 },
                 DragAnim::ReturnAllToHand(d) => {

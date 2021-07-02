@@ -188,9 +188,6 @@ g.invalid rect.tile {
     fill: var(--dark-red);
     stroke: var(--red);
 }
-div#svg_div.nyt g.piece {
-    pointer-events: none;
-}
 g.piece {
     pointer-events: auto;
 }
