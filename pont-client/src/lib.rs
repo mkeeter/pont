@@ -96,6 +96,7 @@ struct Dragging {
     offset: Pos,
     grid_origin: Option<(i32, i32)>,
     hand_index: usize,
+    pointer_id: i32,
 }
 
 #[derive(PartialEq)]
@@ -474,7 +475,8 @@ impl Board {
 
         let mut options = AddEventListenerOptions::new();
         options.passive(false);
-        target.set_pointer_capture(evt.pointer_id())?;
+        let pointer_id = evt.pointer_id();
+        target.set_pointer_capture(pointer_id)?;
         target.add_event_listener_with_callback_and_add_event_listener_options(
             "pointermove",
             self.pointer_move_cb.as_ref().unchecked_ref(), &options)?;
@@ -493,6 +495,7 @@ impl Board {
             offset: (mx - tx, my - ty),
             hand_index,
             grid_origin,
+            pointer_id,
         });
         Ok(())
     }
@@ -640,26 +643,29 @@ impl Board {
         Ok(invalid.is_empty())
     }
 
+    fn release_drag_captures(&self, d: &Dragging) -> JsError {
+        d.target.release_pointer_capture(d.pointer_id)?;
+        d.target.remove_event_listener_with_callback("pointermove",
+                self.pointer_move_cb.as_ref().unchecked_ref())?;
+        d.target.remove_event_listener_with_callback("pointerup",
+                self.pointer_up_cb.as_ref().unchecked_ref())?;
+        self.doc.body()
+            .expect("Could not get boby")
+            .remove_event_listener_with_callback(
+                "pointermove",
+                self.pointer_move_cb.as_ref().unchecked_ref())?;
+        Ok(())
+    }
+
     fn on_pointer_up(&mut self, evt: PointerEvent) -> JsError {
         if let BoardState::Dragging(d) = &self.state {
             evt.prevent_default();
-
-            d.target.release_pointer_capture(evt.pointer_id())?;
-            d.target.remove_event_listener_with_callback("pointermove",
-                    self.pointer_move_cb.as_ref().unchecked_ref())?;
-            d.target.remove_event_listener_with_callback("pointerup",
-                    self.pointer_up_cb.as_ref().unchecked_ref())?;
-            self.doc.body()
-                .expect("Could not get boby")
-                .remove_event_listener_with_callback(
-                    "pointermove",
-                    self.pointer_move_cb.as_ref().unchecked_ref())?;
+            self.release_drag_captures(d)?;
 
             let (pos, drop_target) = self.drop_target(&evt)?;
             let drag_anim = match drop_target {
                 DropTarget::ReturnToHand(i) => {
                     self.pan_group.remove_child(&d.shadow)?;
-                    console_log!("returning {} {}", i, d.hand_index);
                     if i == d.hand_index || i >= self.hand.len() {
                         Some(DragAnim::ReturnToHand(ReturnToHand(
                             TileAnimation {
@@ -1751,6 +1757,25 @@ impl Playing {
         // an animation, otherwise a mouse-up will mess things up.
         if let BoardState::Panning(_) = &self.board.state {
             self.board.on_pan_end(Event::new("CancelPan")?)?;
+        } else if let BoardState::Dragging(d) = &self.board.state {
+            // If the user is dragging a piece around their hand, then inject
+            // an animation to slide the tile back to its original position
+            self.board.pan_group.remove_child(&d.shadow)?;
+            self.board.release_drag_captures(d)?;
+
+            // Parse the current position from the transform attribute
+            let transform = d.target.get_attribute("transform")
+                .unwrap_or_else(|| "translate(0 0)".to_string());
+            let pos = &transform[10..transform.len() - 1];
+            let mut itr = pos.split(' ');
+            let x: f32 = itr.next().unwrap_or("0").parse().unwrap_or(0.0);
+            let y: f32 = itr.next().unwrap_or("0").parse().unwrap_or(0.0);
+            anims.push(TileAnimation {
+                target: d.target.clone(),
+                start: (x, y),
+                end: ((d.hand_index * 15 + 5) as f32, 185.0),
+                t0
+            });
         }
         self.board.state = BoardState::Animation(DragAnim::DropManyToGrid(DropManyToGrid(anims)));
         self.board.request_animation_frame()?;
