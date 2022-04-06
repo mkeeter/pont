@@ -1,29 +1,17 @@
+use wasm_bindgen::convert::FromWasmAbi;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
-use wasm_bindgen::convert::FromWasmAbi;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use web_sys::{
-    AddEventListenerOptions,
-    Blob,
-    Element,
-    Event,
-    EventTarget,
-    FileReader,
-    Document,
-    KeyboardEvent,
-    HtmlButtonElement,
-    HtmlElement,
-    HtmlInputElement,
-    MessageEvent,
-    PointerEvent,
-    ProgressEvent,
-    SvgGraphicsElement,
-    WebSocket,
+    AddEventListenerOptions, Blob, Document, Element, Event, EventTarget,
+    FileReader, HtmlButtonElement, HtmlElement, HtmlInputElement,
+    KeyboardEvent, MessageEvent, PointerEvent, ProgressEvent,
+    SvgGraphicsElement, WebSocket,
 };
 
-use pont_common::{ClientMessage, ServerMessage, Shape, Color, Piece, Game};
+use pont_common::{ClientMessage, Color, Game, Piece, ServerMessage, Shape};
 
 // Minimal logging macro
 macro_rules! console_log {
@@ -124,8 +112,8 @@ impl TileAnimation {
         }
         let x = self.start.0 * (1.0 - frac) + self.end.0 * frac;
         let y = self.start.1 * (1.0 - frac) + self.end.1 * frac;
-        self.target.set_attribute("transform", &format!("translate({} {})",
-                                                        x, y))?;
+        self.target
+            .set_attribute("transform", &format!("translate({x} {y})"))?;
         Ok(frac < 1.0)
     }
 }
@@ -212,75 +200,73 @@ pub struct Board {
 }
 
 impl Board {
-    fn new(doc: &Document)
-        -> JsResult<Board>
-    {
-        let pan_rect = doc.get_element_by_id("pan_rect")
+    fn new(doc: &Document) -> JsResult<Board> {
+        let pan_rect = doc
+            .get_element_by_id("pan_rect")
             .expect("Could not find pan rect");
         set_event_cb(&pan_rect, "pointerdown", move |evt: PointerEvent| {
-            HANDLE.lock().unwrap()
-                .on_pan_start(evt)
-        }).forget();
+            HANDLE.lock().unwrap().on_pan_start(evt)
+        })
+        .forget();
 
-        let accept_button = doc.get_element_by_id("accept_button")
+        let accept_button = doc
+            .get_element_by_id("accept_button")
             .expect("Could not find accept_button")
             .dyn_into()?;
         set_event_cb(&accept_button, "click", move |evt: Event| {
-            HANDLE.lock().unwrap()
-                .on_accept_button(evt)
-        }).forget();
+            HANDLE.lock().unwrap().on_accept_button(evt)
+        })
+        .forget();
 
-        let reject_button = doc.get_element_by_id("reject_button")
+        let reject_button = doc
+            .get_element_by_id("reject_button")
             .expect("Could not find reject_button")
             .dyn_into()?;
         set_event_cb(&reject_button, "click", move |evt: Event| {
-            HANDLE.lock().unwrap()
-                .on_reject_button(evt)
-        }).forget();
+            HANDLE.lock().unwrap().on_reject_button(evt)
+        })
+        .forget();
 
         let pointer_down_cb = build_cb(move |evt: PointerEvent| {
-            HANDLE.lock().unwrap()
-                .on_pointer_down(evt)
+            HANDLE.lock().unwrap().on_pointer_down(evt)
         });
         let pointer_move_cb = build_cb(move |evt: PointerEvent| {
-            HANDLE.lock().unwrap()
-                .on_pointer_move(evt)
+            HANDLE.lock().unwrap().on_pointer_move(evt)
         });
         let pointer_up_cb = build_cb(move |evt: PointerEvent| {
-            HANDLE.lock().unwrap()
-                .on_pointer_up(evt)
+            HANDLE.lock().unwrap().on_pointer_up(evt)
         });
-        let anim_cb = build_cb(move |evt: f64| {
-            HANDLE.lock().unwrap()
-                .on_anim(evt)
-        });
+        let anim_cb =
+            build_cb(move |evt: f64| HANDLE.lock().unwrap().on_anim(evt));
         let pan_move_cb = build_cb(move |evt: PointerEvent| {
-            HANDLE.lock().unwrap()
-                .on_pan_move(evt)
+            HANDLE.lock().unwrap().on_pan_move(evt)
         });
-        let pan_end_cb = build_cb(move |evt: Event| {
-            HANDLE.lock().unwrap()
-                .on_pan_end(evt)
-        });
+        let pan_end_cb =
+            build_cb(move |evt: Event| HANDLE.lock().unwrap().on_pan_end(evt));
         let touch_start_cb = build_cb(move |evt: Event| {
             evt.prevent_default();
             Ok(())
         });
 
-        let svg = doc.get_element_by_id("game_svg")
+        let svg = doc
+            .get_element_by_id("game_svg")
             .expect("Could not find game svg")
             .dyn_into()?;
-        let svg_div = doc.get_element_by_id("svg_div")
+        let svg_div = doc
+            .get_element_by_id("svg_div")
             .expect("Could not find svg div");
-        let pan_group = doc.get_element_by_id("pan_group")
+        let pan_group = doc
+            .get_element_by_id("pan_group")
             .expect("Could not find pan_group");
-        let exchange_div = doc.get_element_by_id("exchange_div")
+        let exchange_div = doc
+            .get_element_by_id("exchange_div")
             .expect("Could not find exchange_div");
 
         let out = Board {
             doc: doc.clone(),
             state: BoardState::Idle,
-            svg, svg_div,
+            svg,
+            svg_div,
             pan_group,
             pan_offset: (0.0, 0.0),
             grid: HashMap::new(),
@@ -317,11 +303,11 @@ impl Board {
 
     fn get_transform(e: &Element) -> Pos {
         let t = e.get_attribute("transform").unwrap();
-        let s = t.chars()
+        let s = t
+            .chars()
             .filter(|&c| c.is_digit(10) || c == ' ' || c == '.' || c == '-')
             .collect::<String>();
-        let mut itr = s.split(' ')
-            .map(|s| s.parse().unwrap());
+        let mut itr = s.split(' ').map(|s| s.parse().unwrap());
 
         let dx = itr.next().unwrap();
         let dy = itr.next().unwrap();
@@ -347,32 +333,39 @@ impl Board {
         }
 
         evt.prevent_default();
-        let target = evt.target()
-            .unwrap()
-            .dyn_into::<Element>()?;
+        let target = evt.target().unwrap().dyn_into::<Element>()?;
         target.set_pointer_capture(evt.pointer_id())?;
 
         let mut options = AddEventListenerOptions::new();
         options.passive(false);
         let pointer_id = evt.pointer_id();
         target.set_pointer_capture(pointer_id)?;
-        target.add_event_listener_with_callback_and_add_event_listener_options(
-            "pointermove",
-            self.pan_move_cb.as_ref().unchecked_ref(), &options)?;
-        target.add_event_listener_with_callback_and_add_event_listener_options(
-            "pointerup",
-            self.pan_end_cb.as_ref().unchecked_ref(), &options)?;
-        self.doc.body()
+        target
+            .add_event_listener_with_callback_and_add_event_listener_options(
+                "pointermove",
+                self.pan_move_cb.as_ref().unchecked_ref(),
+                &options,
+            )?;
+        target
+            .add_event_listener_with_callback_and_add_event_listener_options(
+                "pointerup",
+                self.pan_end_cb.as_ref().unchecked_ref(),
+                &options,
+            )?;
+        self.doc
+            .body()
             .expect("Could not get boby")
             .add_event_listener_with_callback_and_add_event_listener_options(
                 "pointermove",
-                self.pan_move_cb.as_ref().unchecked_ref(), &options)?;
+                self.pan_move_cb.as_ref().unchecked_ref(),
+                &options,
+            )?;
 
         let p = self.mouse_pos(&evt);
         self.state = BoardState::Panning(Panning {
             target,
             pointer_id,
-            pos: (p.0 - self.pan_offset.0, p.1 - self.pan_offset.1)
+            pos: (p.0 - self.pan_offset.0, p.1 - self.pan_offset.1),
         });
 
         Ok(())
@@ -384,10 +377,13 @@ impl Board {
 
             let p = self.mouse_pos(&evt);
             self.pan_offset = (p.0 - d.pos.0, p.1 - d.pos.1);
-            self.pan_group.set_attribute("transform",
-                                   &format!("translate({} {})",
-                                   self.pan_offset.0,
-                                   self.pan_offset.1))
+            self.pan_group.set_attribute(
+                "transform",
+                &format!(
+                    "translate({} {})",
+                    self.pan_offset.0, self.pan_offset.1
+                ),
+            )
         } else {
             Err(JsValue::from_str("Invalid state (pan move)"))
         }
@@ -398,15 +394,21 @@ impl Board {
 
         if let BoardState::Panning(d) = &self.state {
             d.target.release_pointer_capture(d.pointer_id)?;
-            d.target.remove_event_listener_with_callback("pointermove",
-                    self.pan_move_cb.as_ref().unchecked_ref())?;
-            d.target.remove_event_listener_with_callback("pointerup",
-                    self.pan_end_cb.as_ref().unchecked_ref())?;
-            self.doc.body()
+            d.target.remove_event_listener_with_callback(
+                "pointermove",
+                self.pan_move_cb.as_ref().unchecked_ref(),
+            )?;
+            d.target.remove_event_listener_with_callback(
+                "pointerup",
+                self.pan_end_cb.as_ref().unchecked_ref(),
+            )?;
+            self.doc
+                .body()
                 .expect("Could not get boby")
                 .remove_event_listener_with_callback(
                     "pointermove",
-                    self.pan_move_cb.as_ref().unchecked_ref())?;
+                    self.pan_move_cb.as_ref().unchecked_ref(),
+                )?;
             self.state = BoardState::Idle;
             Ok(())
         } else {
@@ -422,9 +424,7 @@ impl Board {
         }
         evt.prevent_default();
 
-        let mut target = evt.target()
-            .unwrap()
-            .dyn_into::<Element>()?;
+        let mut target = evt.target().unwrap().dyn_into::<Element>()?;
 
         // Shadow goes underneath the dragged piece
         let shadow = self.doc.create_svg_element("rect")?;
@@ -456,8 +456,10 @@ impl Board {
             self.pan_group.remove_child(&target)?;
             tx += self.pan_offset.0;
             ty += self.pan_offset.1;
-            target.set_attribute("transform",
-                                   &format!("translate({} {})", tx, ty))?;
+            target.set_attribute(
+                "transform",
+                &format!("translate({} {})", tx, ty),
+            )?;
             let hand_index = self.tentative.remove(&(x, y)).unwrap();
             if self.tentative.is_empty() {
                 self.accept_button.set_disabled(true);
@@ -477,17 +479,26 @@ impl Board {
         options.passive(false);
         let pointer_id = evt.pointer_id();
         target.set_pointer_capture(pointer_id)?;
-        target.add_event_listener_with_callback_and_add_event_listener_options(
-            "pointermove",
-            self.pointer_move_cb.as_ref().unchecked_ref(), &options)?;
-        target.add_event_listener_with_callback_and_add_event_listener_options(
-            "pointerup",
-            self.pointer_up_cb.as_ref().unchecked_ref(), &options)?;
-        self.doc.body()
+        target
+            .add_event_listener_with_callback_and_add_event_listener_options(
+                "pointermove",
+                self.pointer_move_cb.as_ref().unchecked_ref(),
+                &options,
+            )?;
+        target
+            .add_event_listener_with_callback_and_add_event_listener_options(
+                "pointerup",
+                self.pointer_up_cb.as_ref().unchecked_ref(),
+                &options,
+            )?;
+        self.doc
+            .body()
             .expect("Could not get boby")
             .add_event_listener_with_callback_and_add_event_listener_options(
                 "pointermove",
-                self.pointer_move_cb.as_ref().unchecked_ref(), &options)?;
+                self.pointer_move_cb.as_ref().unchecked_ref(),
+                &options,
+            )?;
 
         self.state = BoardState::Dragging(Dragging {
             target,
@@ -504,7 +515,7 @@ impl Board {
         if let BoardState::Dragging(d) = &self.state {
             // Get the position of the tile being dragged
             // in SVG frame coordinates (0-200)
-            let (mut x, mut y) = self.mouse_pos(&evt);
+            let (mut x, mut y) = self.mouse_pos(evt);
             x -= d.offset.0;
             y -= d.offset.1;
 
@@ -537,12 +548,17 @@ impl Board {
             // If the tile is off the bottom of the grid, then we propose
             // to return it to the hand.
             if y >= 165.0 {
-                if self.tentative.is_empty() && x >= 95.0 && x <= 140.0 &&
-                   self.exchange_list.len() < self.pieces_remaining
+                if self.tentative.is_empty()
+                    && x >= 95.0
+                    && x <= 140.0
+                    && self.exchange_list.len() < self.pieces_remaining
                 {
                     return Ok((pos, DropTarget::Exchange));
                 } else {
-                    return Ok((pos, DropTarget::ReturnToHand(((x + 2.5) / 15.0) as usize)));
+                    return Ok((
+                        pos,
+                        DropTarget::ReturnToHand(((x + 2.5) / 15.0) as usize),
+                    ));
                 }
             }
 
@@ -560,17 +576,20 @@ impl Board {
                 x < 0.0 || y < 0.0 || y > 165.0 || x >= 190.0
             };
 
-            let overlapping = self.grid.contains_key(&(tx, ty)) ||
-                              self.tentative.contains_key(&(tx, ty));
+            let overlapping = self.grid.contains_key(&(tx, ty))
+                || self.tentative.contains_key(&(tx, ty));
             if !overlapping && !offboard {
                 return Ok((pos, DropTarget::DropToGrid(tx, ty)));
             }
 
             // Otherwise, return to either the hand or the grid
-            Ok((pos, match d.grid_origin {
-                None => DropTarget::ReturnToHand(d.hand_index),
-                Some((gx, gy)) => DropTarget::ReturnToGrid(gx, gy),
-            }))
+            Ok((
+                pos,
+                match d.grid_origin {
+                    None => DropTarget::ReturnToHand(d.hand_index),
+                    Some((gx, gy)) => DropTarget::ReturnToGrid(gx, gy),
+                },
+            ))
         } else {
             Err(JsValue::from_str("Invalid state (drop target)"))
         }
@@ -581,12 +600,19 @@ impl Board {
             evt.prevent_default();
 
             let (pos, drop_target) = self.drop_target(&evt)?;
-            d.target.set_attribute("transform",
-                                   &format!("translate({} {})", pos.0, pos.1))?;
+            d.target.set_attribute(
+                "transform",
+                &format!("translate({} {})", pos.0, pos.1),
+            )?;
             if let DropTarget::DropToGrid(gx, gy) = drop_target {
                 d.shadow.set_attribute(
-                    "transform", &format!("translate({} {})",
-                         gx as f32 * 10.0, gy as f32 * 10.0))?;
+                    "transform",
+                    &format!(
+                        "translate({} {})",
+                        gx as f32 * 10.0,
+                        gy as f32 * 10.0
+                    ),
+                )?;
                 d.shadow.set_attribute("visibility", "visible")
             } else {
                 d.shadow.set_attribute("visibility", "hidden")
@@ -601,7 +627,9 @@ impl Board {
             board: self.grid.clone(),
             bag: Vec::new(),
         };
-        let ps = self.tentative.iter()
+        let ps = self
+            .tentative
+            .iter()
             .map(|(pos, index)| (self.hand[*index].0, pos.0, pos.1))
             .collect::<Vec<_>>();
         g.play(&ps)
@@ -645,15 +673,21 @@ impl Board {
 
     fn release_drag_captures(&self, d: &Dragging) -> JsError {
         d.target.release_pointer_capture(d.pointer_id)?;
-        d.target.remove_event_listener_with_callback("pointermove",
-                self.pointer_move_cb.as_ref().unchecked_ref())?;
-        d.target.remove_event_listener_with_callback("pointerup",
-                self.pointer_up_cb.as_ref().unchecked_ref())?;
-        self.doc.body()
+        d.target.remove_event_listener_with_callback(
+            "pointermove",
+            self.pointer_move_cb.as_ref().unchecked_ref(),
+        )?;
+        d.target.remove_event_listener_with_callback(
+            "pointerup",
+            self.pointer_up_cb.as_ref().unchecked_ref(),
+        )?;
+        self.doc
+            .body()
             .expect("Could not get boby")
             .remove_event_listener_with_callback(
                 "pointermove",
-                self.pointer_move_cb.as_ref().unchecked_ref())?;
+                self.pointer_move_cb.as_ref().unchecked_ref(),
+            )?;
         Ok(())
     }
 
@@ -672,8 +706,9 @@ impl Board {
                                 target: d.target.clone(),
                                 start: pos,
                                 end: ((d.hand_index * 15 + 5) as f32, 185.0),
-                                t0: evt.time_stamp()
-                            })))
+                                t0: evt.time_stamp(),
+                            },
+                        )))
                     } else {
                         // Check to see if the target is staged in the grid
                         // or exchange region, in which case, we do a slightly
@@ -702,13 +737,16 @@ impl Board {
                                     target: d.target.clone(),
                                     start: pos,
                                     end: ((i * 15 + 5) as f32, 185.0),
-                                    t0: evt.time_stamp()
+                                    t0: evt.time_stamp(),
                                 },
                                 TileAnimation {
                                     target: self.hand[d.hand_index].1.clone(),
                                     start: ((i * 15 + 5) as f32, 185.0),
-                                    end: ((d.hand_index * 15 + 5) as f32, 185.0),
-                                    t0: evt.time_stamp()
+                                    end: (
+                                        (d.hand_index * 15 + 5) as f32,
+                                        185.0,
+                                    ),
+                                    t0: evt.time_stamp(),
                                 },
                             )))
                         } else {
@@ -717,27 +755,31 @@ impl Board {
                                     target: d.target.clone(),
                                     start: pos,
                                     end: ((i * 15 + 5) as f32, 185.0),
-                                    t0: evt.time_stamp()
-                                })))
+                                    t0: evt.time_stamp(),
+                                },
+                            )))
                         }
                     }
-                },
-                DropTarget::DropToGrid(gx, gy) |
-                DropTarget::ReturnToGrid(gx, gy) => {
+                }
+                DropTarget::DropToGrid(gx, gy)
+                | DropTarget::ReturnToGrid(gx, gy) => {
                     self.tentative.insert((gx, gy), d.hand_index);
                     let target = d.target.clone();
                     self.svg.remove_child(&target)?;
                     self.pan_group.append_child(&target)?;
-                    Some(DragAnim::DropToGrid(DropToGrid{
+                    Some(DragAnim::DropToGrid(DropToGrid {
                         anim: TileAnimation {
                             target,
-                            start: (pos.0 - self.pan_offset.0, pos.1 - self.pan_offset.1),
+                            start: (
+                                pos.0 - self.pan_offset.0,
+                                pos.1 - self.pan_offset.1,
+                            ),
                             end: (gx as f32 * 10.0, gy as f32 * 10.0),
                             t0: evt.time_stamp(),
                         },
                         shadow: d.shadow.clone(),
                     }))
-                },
+                }
                 DropTarget::Exchange => {
                     self.pan_group.remove_child(&d.shadow)?;
                     self.exchange_list.push(d.hand_index);
@@ -749,7 +791,7 @@ impl Board {
                     // No animation here, because we wait for the server to
                     // send back a MoveAccepted message then consolidate hand
                     None
-                },
+                }
             };
             let valid = self.mark_invalid()?;
             self.set_estimated_score(valid);
@@ -778,7 +820,7 @@ impl Board {
                         self.reject_button.set_disabled(false);
                         self.set_estimated_score(valid);
                     }
-                },
+                }
                 DragAnim::ReturnToHand(d) => {
                     if d.0.run(t)? {
                         self.request_animation_frame()?;
@@ -794,20 +836,22 @@ impl Board {
                         }
                         self.set_estimated_score(valid);
                     }
-                },
+                }
                 DragAnim::HandSwap(HandSwap(a, b)) => {
-                    if a.run(t)? | b.run(t)? { // non short-circuiting or!
+                    if a.run(t)? | b.run(t)? {
+                        // non short-circuiting or!
                         self.request_animation_frame()?;
                     } else {
                         self.state = BoardState::Idle;
                         if !self.tentative.is_empty() {
-                            self.accept_button.set_disabled(!self.mark_invalid()?);
+                            self.accept_button
+                                .set_disabled(!self.mark_invalid()?);
                         } else if self.exchange_list.is_empty() {
                             self.accept_button.set_disabled(true);
                             self.reject_button.set_disabled(true);
                         }
                     }
-                },
+                }
                 DragAnim::ReturnAllToHand(d) => {
                     let mut any_running = false;
                     for a in d.0.iter() {
@@ -822,9 +866,9 @@ impl Board {
                         self.update_exchange_div(true)?;
                         self.set_estimated_score(false);
                     }
-                },
-                DragAnim::ConsolidateHand(ConsolidateHand(d)) |
-                DragAnim::DropManyToGrid(DropManyToGrid(d)) => {
+                }
+                DragAnim::ConsolidateHand(ConsolidateHand(d))
+                | DragAnim::DropManyToGrid(DropManyToGrid(d)) => {
                     let mut any_running = false;
                     for a in d.iter() {
                         any_running |= a.run(t)?;
@@ -834,7 +878,7 @@ impl Board {
                     } else {
                         self.state = BoardState::Idle;
                     }
-                },
+                }
             }
         }
         Ok(())
@@ -843,27 +887,30 @@ impl Board {
     fn request_animation_frame(&self) -> JsResult<i32> {
         web_sys::window()
             .expect("no global `window` exists")
-            .request_animation_frame(self.anim_cb.as_ref()
-                                     .unchecked_ref())
+            .request_animation_frame(self.anim_cb.as_ref().unchecked_ref())
     }
 
     fn add_hand(&mut self, p: Piece) -> JsResult<Element> {
         let g = self.new_piece(p)?;
         self.svg.append_child(&g)?;
         g.class_list().add_1("piece")?;
-        g.set_attribute("transform", &format!("translate({} 185)",
-                                              5 + 15 * self.hand.len()))?;
+        g.set_attribute(
+            "transform",
+            &format!("translate({} 185)", 5 + 15 * self.hand.len()),
+        )?;
 
         let mut options = AddEventListenerOptions::new();
         options.passive(false);
         g.add_event_listener_with_callback_and_add_event_listener_options(
             "pointerdown",
             self.pointer_down_cb.as_ref().unchecked_ref(),
-            &options)?;
+            &options,
+        )?;
         g.add_event_listener_with_callback_and_add_event_listener_options(
             "touchstart",
             self.touch_start_cb.as_ref().unchecked_ref(),
-            &options)?;
+            &options,
+        )?;
 
         self.hand.push((p, g.clone()));
 
@@ -885,7 +932,7 @@ impl Board {
                 s.set_attribute("cx", "5.0")?;
                 s.set_attribute("cy", "5.0")?;
                 s
-            },
+            }
             Shape::Square => {
                 let s = self.doc.create_svg_element("rect")?;
                 s.set_attribute("width", "6.0")?;
@@ -927,7 +974,10 @@ impl Board {
             }
             Shape::Cross => {
                 let s = self.doc.create_svg_element("polygon")?;
-                s.set_attribute("points", "2,2 3.5,5 2,8 5,6.5 8,8 6.5,5 8,2 5,3.5")?;
+                s.set_attribute(
+                    "points",
+                    "2,2 3.5,5 2,8 5,6.5 8,8 6.5,5 8,2 5,3.5",
+                )?;
                 s
             }
             Shape::Star => {
@@ -977,7 +1027,6 @@ impl Board {
             g.append_child(&corner)?;
         }
 
-
         Ok(g)
     }
 
@@ -988,8 +1037,10 @@ impl Board {
         self.pan_group.append_child(&g)?;
         g.class_list().add_1("placed")?;
         g.class_list().add_1("played")?;
-        g.set_attribute("transform",
-                        &format!("translate({} {})", x * 10, y * 10))?;
+        g.set_attribute(
+            "transform",
+            &format!("translate({} {})", x * 10, y * 10),
+        )?;
 
         Ok(g)
     }
@@ -998,7 +1049,8 @@ impl Board {
         let prev_played = self.doc.get_elements_by_class_name("played");
         // We empty out the collection by removing the 'played' class
         while prev_played.length() > 0 {
-            prev_played.item(0)
+            prev_played
+                .item(0)
                 .ok_or_else(|| JsValue::from_str("Could not get item"))?
                 .class_list()
                 .remove_1("played")?;
@@ -1023,20 +1075,29 @@ impl Board {
                 t.class_list().remove_1("invalid")?;
                 let (dx, dy) = Self::get_transform(t);
                 t.set_attribute(
-                    "transform", &format!("translate({} {})",
-                            dx - self.pan_offset.0,
-                            dy - self.pan_offset.1))?;
+                    "transform",
+                    &format!(
+                        "translate({} {})",
+                        dx - self.pan_offset.0,
+                        dy - self.pan_offset.1
+                    ),
+                )?;
                 self.svg.append_child(t)?;
             }
             Some(DragAnim::ReturnAllToHand(ReturnAllToHand(
-                tiles.drain().map(|((tx, ty), i)|
-                    TileAnimation {
+                tiles
+                    .drain()
+                    .map(|((tx, ty), i)| TileAnimation {
                         target: self.hand[i].1.clone(),
-                        start: (tx as f32 * 10.0 + self.pan_offset.0,
-                                ty as f32 * 10.0 + self.pan_offset.1),
+                        start: (
+                            tx as f32 * 10.0 + self.pan_offset.0,
+                            ty as f32 * 10.0 + self.pan_offset.1,
+                        ),
                         end: ((i * 15 + 5) as f32, 185.0),
-                        t0: evt.time_stamp()
-                    }).collect())))
+                        t0: evt.time_stamp(),
+                    })
+                    .collect(),
+            )))
         } else if !self.exchange_list.is_empty() {
             let mut ex = Vec::new();
             std::mem::swap(&mut ex, &mut self.exchange_list);
@@ -1050,11 +1111,12 @@ impl Board {
                         Ok(TileAnimation {
                             target,
                             start: (x, 200.0),
-                            end:   (x, 185.0),
-                            t0: evt.time_stamp()
+                            end: (x, 185.0),
+                            t0: evt.time_stamp(),
                         })
                     })
-                    .collect::<JsResult<Vec<TileAnimation>>>()?)))
+                    .collect::<JsResult<Vec<TileAnimation>>>()?,
+            )))
         } else {
             None
         };
@@ -1084,14 +1146,17 @@ impl Board {
         self.set_my_turn(false)?;
 
         if !self.tentative.is_empty() {
-            Ok(Move::Place(self.tentative.iter()
-                .map(|((x, y), i)| (self.hand[*i].0, *x, *y))
-                .collect()))
+            Ok(Move::Place(
+                self.tentative
+                    .iter()
+                    .map(|((x, y), i)| (self.hand[*i].0, *x, *y))
+                    .collect(),
+            ))
         } else {
             assert!(!self.exchange_list.is_empty());
-            Ok(Move::Swap(self.exchange_list.iter()
-                .map(|i| self.hand[*i].0)
-                .collect()))
+            Ok(Move::Swap(
+                self.exchange_list.iter().map(|i| self.hand[*i].0).collect(),
+            ))
         }
     }
 
@@ -1118,7 +1183,8 @@ impl Board {
                 element.class_list().add_1("placed")?;
                 element.remove_event_listener_with_callback(
                     "pointerdown",
-                    self.pointer_down_cb.as_ref().unchecked_ref())?;
+                    self.pointer_down_cb.as_ref().unchecked_ref(),
+                )?;
                 self.grid.insert((x, y), piece);
             } else if exchanged.contains(&i) {
                 self.svg.remove_child(&element)?;
@@ -1128,7 +1194,8 @@ impl Board {
                         target: element.clone(),
                         start: (i as f32 * 15.0 + 5.0, 185.0),
                         end: (self.hand.len() as f32 * 15.0 + 5.0, 185.0),
-                        t0 });
+                        t0,
+                    });
                 }
                 self.hand.push((piece, element));
             }
@@ -1140,11 +1207,12 @@ impl Board {
                 target,
                 start: (x, 220.0),
                 end: (x, 185.0),
-                t0
+                t0,
             })
         }
-        self.state = BoardState::Animation(
-            DragAnim::ConsolidateHand(ConsolidateHand(anims)));
+        self.state = BoardState::Animation(DragAnim::ConsolidateHand(
+            ConsolidateHand(anims),
+        ));
         self.request_animation_frame()?;
 
         Ok(())
@@ -1164,7 +1232,8 @@ impl Board {
 
         // If there are no pieces remaining, then the box is always disabled
         if self.pieces_remaining == 0 {
-            self.exchange_div.set_inner_html("<p>No pieces<br>left in bag</p>");
+            self.exchange_div
+                .set_inner_html("<p>No pieces<br>left in bag</p>");
             self.exchange_div.class_list().add_1("disabled")?;
             return Ok(());
         }
@@ -1172,7 +1241,8 @@ impl Board {
         // If it's not your turn, then we disable the box but leave the normal
         // text (because we know that there are pieces remaining).
         if !my_turn {
-            self.exchange_div.set_inner_html("<p>Drag here<br>to swap</p>");
+            self.exchange_div
+                .set_inner_html("<p>Drag here<br>to swap</p>");
             self.exchange_div.class_list().add_1("disabled")?;
             return Ok(());
         }
@@ -1180,7 +1250,8 @@ impl Board {
         // If it's our turn and there are pieces staged in the grid, then we
         // disable the swapping box.
         if !self.tentative.is_empty() {
-            self.exchange_div.set_inner_html("<p>Drag here<br>to swap</p>");
+            self.exchange_div
+                .set_inner_html("<p>Drag here<br>to swap</p>");
             self.exchange_div.class_list().add_1("disabled")?;
             return Ok(());
         }
@@ -1189,13 +1260,19 @@ impl Board {
         self.exchange_div.class_list().remove_1("disabled")?;
         let n = self.exchange_list.len();
         if n == 0 {
-            self.exchange_div.set_inner_html("<p>Drag here<br>to swap</p>");
+            self.exchange_div
+                .set_inner_html("<p>Drag here<br>to swap</p>");
         } else {
-            self.exchange_div.set_inner_html(
-                &format!("<p>Swap {} piece{}{}</p>",
-                         n, if n > 1 { "s" } else { " " },
-                         if n == self.pieces_remaining { " (max)" }
-                         else { "" }));
+            self.exchange_div.set_inner_html(&format!(
+                "<p>Swap {} piece{}{}</p>",
+                n,
+                if n > 1 { "s" } else { " " },
+                if n == self.pieces_remaining {
+                    " (max)"
+                } else {
+                    ""
+                }
+            ));
         }
         Ok(())
     }
@@ -1210,9 +1287,9 @@ pub struct Base {
 
 impl Base {
     fn send(&self, msg: ClientMessage) -> JsError {
-        let encoded = bincode::serialize(&msg)
-            .map_err(|e| JsValue::from_str(
-                    &format!("Could not encode: {}", e)))?;
+        let encoded = bincode::serialize(&msg).map_err(|e| {
+            JsValue::from_str(&format!("Could not encode: {}", e))
+        })?;
         self.ws.send_with_u8_array(&encoded[..])
     }
 }
@@ -1221,7 +1298,7 @@ impl Base {
 
 // These are the states in the system
 struct Connecting {
-    base: Base
+    base: Base,
 }
 
 struct CreateOrJoin {
@@ -1314,7 +1391,9 @@ impl State {
     );
 }
 
-unsafe impl Send for State { /* YOLO */}
+unsafe impl Send for State {
+    /* YOLO */
+}
 
 lazy_static::lazy_static! {
     static ref HANDLE: Mutex<State> = Mutex::new(State::Empty);
@@ -1325,22 +1404,26 @@ lazy_static::lazy_static! {
 // The resulting callback must be stored for as long as it may be used.
 #[must_use]
 fn build_cb<F, T>(f: F) -> JsClosure<T>
-    where F: FnMut(T) -> JsError + 'static,
-          T: FromWasmAbi + 'static
+where
+    F: FnMut(T) -> JsError + 'static,
+    T: FromWasmAbi + 'static,
 {
     Closure::wrap(Box::new(f) as Box<dyn FnMut(T) -> JsError>)
 }
 
 #[must_use]
 fn set_event_cb<E, F, T>(obj: &E, name: &str, f: F) -> JsClosure<T>
-    where E: JsCast + Clone + std::fmt::Debug,
-          F: FnMut(T) -> JsError + 'static,
-          T: FromWasmAbi + 'static
+where
+    E: JsCast + Clone + std::fmt::Debug,
+    F: FnMut(T) -> JsError + 'static,
+    T: FromWasmAbi + 'static,
 {
     let cb = build_cb(f);
-    let target = obj.dyn_ref::<EventTarget>()
+    let target = obj
+        .dyn_ref::<EventTarget>()
         .expect("Could not convert into `EventTarget`");
-    target.add_event_listener_with_callback(name, cb.as_ref().unchecked_ref())
+    target
+        .add_event_listener_with_callback(name, cb.as_ref().unchecked_ref())
         .expect("Could not add event listener");
     cb
 }
@@ -1349,7 +1432,9 @@ fn set_event_cb<E, F, T>(obj: &E, name: &str, f: F) -> JsClosure<T>
 
 impl Connecting {
     fn on_connected(self) -> JsResult<CreateOrJoin> {
-        self.base.doc.get_element_by_id("disconnected_msg")
+        self.base
+            .doc
+            .get_element_by_id("disconnected_msg")
             .expect("Could not get disconnected_msg div")
             .dyn_into::<HtmlElement>()?
             .set_text_content(Some("Lost connection to game server"));
@@ -1359,47 +1444,60 @@ impl Connecting {
 
 impl CreateOrJoin {
     fn new(base: Base) -> JsResult<CreateOrJoin> {
-        let name_input = base.doc.get_element_by_id("name_input")
+        let name_input = base
+            .doc
+            .get_element_by_id("name_input")
             .expect("Could not find name_input")
             .dyn_into::<HtmlInputElement>()?;
-        let room_input = base.doc.get_element_by_id("room_input")
+        let room_input = base
+            .doc
+            .get_element_by_id("room_input")
             .expect("Could not find room_input")
             .dyn_into::<HtmlInputElement>()?;
-        let room_invalid_cb = set_event_cb(&room_input, "invalid",
-            move |_: Event| {
+        let room_invalid_cb =
+            set_event_cb(&room_input, "invalid", move |_: Event| {
                 HANDLE.lock().unwrap().on_room_name_invalid()
             });
         let input_cb = set_event_cb(&room_input, "input", move |_: Event| {
             HANDLE.lock().unwrap().on_join_inputs_changed()
         });
 
-        let form = base.doc.get_element_by_id("join_form")
+        let form = base
+            .doc
+            .get_element_by_id("join_form")
             .expect("Could not find join_form");
         let submit_cb = set_event_cb(&form, "submit", move |e: Event| {
             e.prevent_default();
             HANDLE.lock().unwrap().on_join_button()
         });
 
-        let err_div = base.doc.get_element_by_id("err_div")
+        let err_div = base
+            .doc
+            .get_element_by_id("err_div")
             .expect("Could not find err_div")
             .dyn_into()?;
-        let err_span = base.doc.get_element_by_id("err_span")
+        let err_span = base
+            .doc
+            .get_element_by_id("err_span")
             .expect("Could not find err_span")
             .dyn_into()?;
 
-        let play_button = base.doc.get_element_by_id("play_button")
+        let play_button = base
+            .doc
+            .get_element_by_id("play_button")
             .expect("Could not find play_button")
             .dyn_into::<HtmlButtonElement>()?;
 
-        play_button.set_text_content(Some(
-            if room_input.value().is_empty() {
-                "Create new room"
-            } else {
-                "Join existing room"
-            }));
+        play_button.set_text_content(Some(if room_input.value().is_empty() {
+            "Create new room"
+        } else {
+            "Join existing room"
+        }));
         play_button.class_list().remove_1("disabled")?;
 
-        let colorblind_checkbox = base.doc.get_element_by_id("colorblind")
+        let colorblind_checkbox = base
+            .doc
+            .get_element_by_id("colorblind")
             .expect("Could not find colorblind checkbox")
             .dyn_into()?;
 
@@ -1425,23 +1523,37 @@ impl CreateOrJoin {
         Ok(())
     }
 
-    fn on_joined_room(self, room_name: &str, players: &[(String, u32, bool)],
-                      active_player: usize, player_index: usize,
-                      board: &[((i32, i32), Piece)],
-                      pieces: &[Piece]) -> JsResult<Playing>
-    {
-        self.base.doc.get_element_by_id("join")
+    fn on_joined_room(
+        self,
+        room_name: &str,
+        players: &[(String, u32, bool)],
+        active_player: usize,
+        player_index: usize,
+        board: &[((i32, i32), Piece)],
+        pieces: &[Piece],
+    ) -> JsResult<Playing> {
+        self.base
+            .doc
+            .get_element_by_id("join")
             .expect("Could not get join div")
             .dyn_into::<HtmlElement>()?
             .set_hidden(true);
-        self.base.doc.get_element_by_id("playing")
+        self.base
+            .doc
+            .get_element_by_id("playing")
             .expect("Could not get playing div")
             .dyn_into::<HtmlElement>()?
             .set_hidden(false);
 
-        let mut p = Playing::new(self.base, room_name, players,
-                                 active_player, player_index,
-                                 board, pieces)?;
+        let mut p = Playing::new(
+            self.base,
+            room_name,
+            players,
+            active_player,
+            player_index,
+            board,
+            pieces,
+        )?;
         p.on_information(&format!("Welcome, {}!", players[player_index].0))?;
         p.on_player_turn(active_player)?;
         Ok(p)
@@ -1452,7 +1564,9 @@ impl CreateOrJoin {
         let name = self.name_input.value();
         let room = self.room_input.value();
         if self.colorblind_checkbox.checked() {
-            self.base.doc.get_element_by_id("playing")
+            self.base
+                .doc
+                .get_element_by_id("playing")
                 .ok_or_else(|| JsValue::from_str("No playing box"))?
                 .class_list()
                 .add_1("colorblind")?;
@@ -1471,7 +1585,8 @@ impl CreateOrJoin {
                 "Create new room"
             } else {
                 "Join existing room"
-            }));
+            },
+        ));
         self.room_input.set_custom_validity("");
         Ok(())
     }
@@ -1485,31 +1600,42 @@ impl CreateOrJoin {
 ////////////////////////////////////////////////////////////////////////////////
 
 impl Playing {
-    fn new(base: Base, room_name: &str, players: &[(String, u32, bool)],
-           active_player: usize, player_index: usize,
-           in_board: &[((i32, i32), Piece)],
-           pieces: &[Piece]) -> JsResult<Playing>
-    {
+    fn new(
+        base: Base,
+        room_name: &str,
+        players: &[(String, u32, bool)],
+        active_player: usize,
+        player_index: usize,
+        in_board: &[((i32, i32), Piece)],
+        pieces: &[Piece],
+    ) -> JsResult<Playing> {
         // The title lists the room name
-        let s: HtmlElement = base.doc.get_element_by_id("room_name")
+        let s: HtmlElement = base
+            .doc
+            .get_element_by_id("room_name")
             .expect("Could not get room_name")
             .dyn_into()?;
-        s.set_text_content(Some(&room_name));
+        s.set_text_content(Some(room_name));
 
         let board = Board::new(&base.doc)?;
 
-        let b = base.doc.get_element_by_id("chat_name")
+        let b = base
+            .doc
+            .get_element_by_id("chat_name")
             .expect("Could not get chat_name");
         b.set_text_content(Some(&format!("{}:", players[player_index].0)));
 
         // If Enter is pressed while focus is in the chat box,
         // send a chat message to the server.
-        let chat_input = base.doc.get_element_by_id("chat_input")
+        let chat_input = base
+            .doc
+            .get_element_by_id("chat_input")
             .expect("Could not get chat_input")
             .dyn_into()?;
-        let keyup_cb = set_event_cb(&chat_input, "keyup",
-            move |e: KeyboardEvent| {
-                if e.key_code() == 13 { // Enter key
+        let keyup_cb =
+            set_event_cb(&chat_input, "keyup", move |e: KeyboardEvent| {
+                if e.key_code() == 13 {
+                    // Enter key
                     e.prevent_default();
                     HANDLE.lock().unwrap().on_send_chat()
                 } else {
@@ -1517,10 +1643,14 @@ impl Playing {
                 }
             });
 
-        let chat_div = base.doc.get_element_by_id("chat_msgs")
+        let chat_div = base
+            .doc
+            .get_element_by_id("chat_msgs")
             .expect("Could not get chat_div")
             .dyn_into()?;
-        let score_table = base.doc.get_element_by_id("score_rows")
+        let score_table = base
+            .doc
+            .get_element_by_id("score_rows")
             .expect("Could not get score_rows")
             .dyn_into()?;
 
@@ -1547,10 +1677,16 @@ impl Playing {
 
         for (i, (name, score, connected)) in players.iter().enumerate() {
             out.add_player_row(
-                name, *score as usize, *connected, i == player_index)?;
+                name,
+                *score as usize,
+                *connected,
+                i == player_index,
+            )?;
         }
 
-        let s = out.score_table.child_nodes()
+        let s = out
+            .score_table
+            .child_nodes()
             .item(out.player_index as u32 + 3)
             .expect("Could not get table row")
             .child_nodes()
@@ -1573,11 +1709,11 @@ impl Playing {
         b.set_text_content(Some(from));
         p.append_child(&b)?;
 
-        let s =  self.base.doc.create_element("b")?;
+        let s = self.base.doc.create_element("b")?;
         s.set_text_content(Some(":"));
         p.append_child(&s)?;
 
-        let s =  self.base.doc.create_element("span")?;
+        let s = self.base.doc.create_element("span")?;
         s.set_text_content(Some(msg));
         p.append_child(&s)?;
 
@@ -1598,9 +1734,13 @@ impl Playing {
         Ok(())
     }
 
-    fn add_player_row(&mut self, name: &str, score: usize,
-                      connected: bool, is_you: bool) -> JsError
-    {
+    fn add_player_row(
+        &mut self,
+        name: &str,
+        score: usize,
+        connected: bool,
+        is_you: bool,
+    ) -> JsError {
         let tr = self.base.doc.create_element("tr")?;
         tr.set_class_name("player-row");
 
@@ -1655,28 +1795,34 @@ impl Playing {
     }
 
     fn on_player_disconnected(&self, index: usize) -> JsError {
-        let c = self.score_table.child_nodes()
+        let c = self
+            .score_table
+            .child_nodes()
             .item((index + 3) as u32)
             .unwrap()
             .dyn_into::<HtmlElement>()?;
         c.class_list().add_1("disconnected")?;
-        self.on_information(&format!("{} disconnected",
-                                     self.player_names[index]))
+        self.on_information(&format!(
+            "{} disconnected",
+            self.player_names[index]
+        ))
     }
 
     fn on_player_reconnected(&self, index: usize) -> JsError {
-        let c = self.score_table.child_nodes()
+        let c = self
+            .score_table
+            .child_nodes()
             .item((index + 3) as u32)
             .unwrap()
             .dyn_into::<HtmlElement>()?;
         c.class_list().remove_1("disconnected")?;
-        self.on_information(&format!("{} reconnected",
-                                     self.player_names[index]))
+        self.on_information(&format!(
+            "{} reconnected",
+            self.player_names[index]
+        ))
     }
 
-    fn on_player_turn(&mut self, active_player: usize)
-        -> JsError
-    {
+    fn on_player_turn(&mut self, active_player: usize) -> JsError {
         let children = self.score_table.child_nodes();
         children
             .item((self.active_player + 3) as u32)
@@ -1696,9 +1842,10 @@ impl Playing {
         if self.active_player == self.player_index {
             self.on_information("It's your turn!")
         } else {
-            self.on_information(
-                &format!("It's {}'s turn!",
-                         self.player_names[self.active_player]))
+            self.on_information(&format!(
+                "It's {}'s turn!",
+                self.player_names[self.active_player]
+            ))
         }?;
 
         self.board.set_my_turn(active_player == self.player_index)
@@ -1753,7 +1900,8 @@ impl Playing {
                 target,
                 start: (225.0, *y as f32 * 10.0),
                 end: (*x as f32 * 10.0, *y as f32 * 10.0),
-                t0 });
+                t0,
+            });
         }
         // If we're panning, we need to cancel the pan state before starting
         // an animation, otherwise a mouse-up will mess things up.
@@ -1766,7 +1914,9 @@ impl Playing {
             self.board.release_drag_captures(d)?;
 
             // Parse the current position from the transform attribute
-            let transform = d.target.get_attribute("transform")
+            let transform = d
+                .target
+                .get_attribute("transform")
                 .unwrap_or_else(|| "translate(0 0)".to_string());
             let pos = &transform[10..transform.len() - 1];
             let mut itr = pos.split(' ');
@@ -1776,10 +1926,12 @@ impl Playing {
                 target: d.target.clone(),
                 start: (x, y),
                 end: ((d.hand_index * 15 + 5) as f32, 185.0),
-                t0
+                t0,
             });
         }
-        self.board.state = BoardState::Animation(DragAnim::DropManyToGrid(DropManyToGrid(anims)));
+        self.board.state = BoardState::Animation(DragAnim::DropManyToGrid(
+            DropManyToGrid(anims),
+        ));
         self.board.request_animation_frame()?;
         Ok(())
     }
@@ -1793,9 +1945,12 @@ impl Playing {
     }
 
     fn on_swapped(&mut self, count: usize) -> JsError {
-        self.on_information(&format!("{} swapped {} piece{}",
-            self.active_player_name(), count,
-            if count > 1 { "s" } else { "" }))
+        self.on_information(&format!(
+            "{} swapped {} piece{}",
+            self.active_player_name(),
+            count,
+            if count > 1 { "s" } else { "" }
+        ))
     }
 
     fn on_move_accepted(&mut self, dealt: &[Piece]) -> JsError {
@@ -1807,7 +1962,8 @@ impl Playing {
     }
 
     fn on_player_score(&mut self, delta: u32, total: u32) -> JsError {
-        self.score_table.child_nodes()
+        self.score_table
+            .child_nodes()
             .item(self.active_player as u32 + 3)
             .expect("Could not get table row")
             .child_nodes()
@@ -1817,10 +1973,12 @@ impl Playing {
             .item(0)
             .expect("Could not get first span")
             .set_text_content(Some(&total.to_string()));
-        self.on_information(&format!("{} scored {} point{}",
+        self.on_information(&format!(
+            "{} scored {} point{}",
             self.active_player_name(),
             delta,
-            if delta == 1 { "" } else { "s" }))
+            if delta == 1 { "" } else { "s" }
+        ))
     }
 
     fn on_finished(&mut self, winner: usize) -> JsError {
@@ -1837,19 +1995,17 @@ impl Playing {
         if winner == self.player_index {
             self.on_information("You win!")
         } else {
-            self.on_information(&format!("{} wins!",
-                self.player_names[winner]))
+            self.on_information(&format!("{} wins!", self.player_names[winner]))
         }
     }
 
     fn on_pieces_remaining(&mut self, remaining: usize) -> JsError {
         self.board.pieces_remaining = remaining;
-        self.board.update_exchange_div(self.active_player == self.player_index)
+        self.board.update_exchange_div(self.board.my_turn)
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-
 
 fn on_message(msg: ServerMessage) -> JsError {
     use ServerMessage::*;
@@ -1859,11 +2015,22 @@ fn on_message(msg: ServerMessage) -> JsError {
 
     match msg {
         JoinFailed(name) => state.on_join_failed(&name),
-        JoinedRoom{room_name, players, active_player, player_index, board, pieces} =>
-            state.on_joined_room(&room_name, &players,
-                                 active_player, player_index,
-                                 &board, &pieces),
-        Chat{from, message} => state.on_chat(&from, &message),
+        JoinedRoom {
+            room_name,
+            players,
+            active_player,
+            player_index,
+            board,
+            pieces,
+        } => state.on_joined_room(
+            &room_name,
+            &players,
+            active_player,
+            player_index,
+            &board,
+            &pieces,
+        ),
+        Chat { from, message } => state.on_chat(&from, &message),
         Information(message) => state.on_information(&message),
         NewPlayer(name) => state.on_new_player(&name),
         PlayerDisconnected(index) => state.on_player_disconnected(index),
@@ -1874,8 +2041,7 @@ fn on_message(msg: ServerMessage) -> JsError {
         Swapped(count) => state.on_swapped(count),
         MoveAccepted(dealt) => state.on_move_accepted(&dealt),
         MoveRejected => state.on_move_rejected(),
-        PlayerScore{delta, total} =>
-            state.on_player_score(delta, total),
+        PlayerScore { delta, total } => state.on_player_score(delta, total),
         ItsOver(winner) => state.on_finished(winner),
     }
 }
@@ -1887,20 +2053,17 @@ fn on_message(msg: ServerMessage) -> JsError {
 pub fn main() -> JsError {
     console_error_panic_hook::set_once();
 
-    let window = web_sys::window()
-        .expect("no global `window` exists");
-    let doc = window.document()
-        .expect("should have a document on window");
+    let window = web_sys::window().expect("no global `window` exists");
+    let doc = window.document().expect("should have a document on window");
 
-    let location = doc.location()
-        .expect("Could not get doc location");
+    let location = doc.location().expect("Could not get doc location");
     let hostname = location.hostname()?;
 
     // Pick the port based on the connection type
     let (ws_protocol, ws_port) = if location.protocol()? == "https:" {
         ("wss", 8081)
     } else {
-        ("ws",  8080)
+        ("ws", 8080)
     };
     let hostname = format!("{}://{}:{}", ws_protocol, hostname, ws_port);
 
@@ -1913,9 +2076,9 @@ pub fn main() -> JsError {
 
     // The websocket callbacks are long-lived, so we forget them here
     set_event_cb(&ws, "open", move |_: JsValue| {
-        HANDLE.lock().unwrap()
-            .on_connected()
-    }).forget();
+        HANDLE.lock().unwrap().on_connected()
+    })
+    .forget();
     let on_decoded_cb = Closure::wrap(Box::new(move |e: ProgressEvent| {
         let target = e.target().expect("Could not get target");
         let reader: FileReader = target.dyn_into().expect("Could not cast");
@@ -1924,20 +2087,23 @@ pub fn main() -> JsError {
         let mut data = vec![0; buf.length() as usize];
         buf.copy_to(&mut data[..]);
         let msg = bincode::deserialize(&data[..])
-            .map_err(|e| JsValue::from_str(
-                    &format!("Failed to deserialize: {}", e)))
+            .map_err(|e| {
+                JsValue::from_str(&format!("Failed to deserialize: {}", e))
+            })
             .expect("Could not decode message");
-        on_message(msg)
-            .expect("Message decoding failed")
+        on_message(msg).expect("Message decoding failed")
     }) as Box<dyn FnMut(ProgressEvent)>);
     set_event_cb(&ws, "message", move |e: MessageEvent| {
         let blob = e.data().dyn_into::<Blob>()?;
         let fr = FileReader::new()?;
-        fr.add_event_listener_with_callback("load",
-                &on_decoded_cb.as_ref().unchecked_ref())?;
+        fr.add_event_listener_with_callback(
+            "load",
+            on_decoded_cb.as_ref().unchecked_ref(),
+        )?;
         fr.read_as_array_buffer(&blob)?;
         Ok(())
-    }).forget();
+    })
+    .forget();
     set_event_cb(&ws, "close", move |_: Event| -> JsError {
         let doc = web_sys::window()
             .expect("no global `window` exists")
@@ -1954,14 +2120,17 @@ pub fn main() -> JsError {
             .dyn_into::<HtmlElement>()?
             .set_hidden(false);
         Ok(())
-    }).forget();
+    })
+    .forget();
 
-    let rev = doc.get_element_by_id("revhash")
+    let rev = doc
+        .get_element_by_id("revhash")
         .expect("Could not find rev");
     rev.set_text_content(Some(env!("VERGEN_SHA_SHORT")));
 
     let base = Base { doc, ws };
-    base.doc.get_element_by_id("play_button")
+    base.doc
+        .get_element_by_id("play_button")
         .expect("Could not get loading div")
         .dyn_into::<HtmlElement>()?
         .set_text_content(Some("Connecting..."));
