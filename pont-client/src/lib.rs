@@ -185,6 +185,7 @@ pub struct Board {
     accept_button: HtmlButtonElement,
     reject_button: HtmlButtonElement,
     exchange_div: Element,
+    count_div: Element,
 
     tentative_score_span: Option<HtmlElement>,
 
@@ -261,6 +262,9 @@ impl Board {
         let exchange_div = doc
             .get_element_by_id("exchange_div")
             .expect("Could not find exchange_div");
+        let count_div = doc
+            .get_element_by_id("count_div")
+            .expect("Could not find count_div");
 
         let out = Board {
             doc: doc.clone(),
@@ -284,6 +288,7 @@ impl Board {
             accept_button,
             reject_button,
             exchange_div,
+            count_div,
             pieces_remaining: 0,
             tentative_score_span: None,
         };
@@ -1276,6 +1281,15 @@ impl Board {
         }
         Ok(())
     }
+
+    fn update_count_div(&mut self) -> JsError {
+        self.count_div.set_inner_html(&format!(
+            "<p>{} piece{} left in the bag</p>",
+            self.pieces_remaining,
+            if self.pieces_remaining == 1 { "" } else { "s" }
+        ));
+        Ok(())
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2001,6 +2015,7 @@ impl Playing {
 
     fn on_pieces_remaining(&mut self, remaining: usize) -> JsError {
         self.board.pieces_remaining = remaining;
+        self.board.update_count_div()?;
         self.board.update_exchange_div(self.board.my_turn)
     }
 }
