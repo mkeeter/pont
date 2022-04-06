@@ -1,26 +1,26 @@
+use env_logger::Env;
+use log::{debug, error, info, trace, warn};
+use rand::Rng;
 use std::{
     collections::HashMap,
     env,
     io::Error as IoError,
-    net::{TcpStream, TcpListener, SocketAddr},
+    net::{SocketAddr, TcpListener, TcpStream},
     sync::{Arc, Mutex},
     time::Duration,
 };
-use rand::Rng;
-use log::{error, warn, info, debug, trace};
-use env_logger::Env;
 
-use futures::{future, future::{join}};
-use futures::stream::StreamExt;
+use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use futures::sink::SinkExt;
-use futures::channel::mpsc::{unbounded, UnboundedSender, UnboundedReceiver};
+use futures::stream::StreamExt;
+use futures::{future, future::join};
 
 use anyhow::Result;
-use tungstenite::Message as WebsocketMessage;
 use async_tungstenite::WebSocketStream;
 use smol::{Async, Task, Timer};
+use tungstenite::Message as WebsocketMessage;
 
-use pont_common::{ClientMessage, ServerMessage, Game, Piece};
+use pont_common::{ClientMessage, Game, Piece, ServerMessage};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -47,9 +47,7 @@ struct RoomHandle {
 }
 
 impl RoomHandle {
-    async fn run_room(&mut self,
-                      mut read: UnboundedReceiver<TaggedClientMessage>)
-    {
+    async fn run_room(&mut self, mut read: UnboundedReceiver<TaggedClientMessage>) {
         while let Some((addr, msg)) = read.next().await {
             if !self.room.lock().unwrap().on_message(addr, msg) {
                 break;
@@ -58,10 +56,12 @@ impl RoomHandle {
     }
 }
 
-async fn run_player(player_name: String, addr: SocketAddr,
-                    handle: RoomHandle,
-                    ws_stream: WebSocketStream<Async<TcpStream>>)
-{
+async fn run_player(
+    player_name: String,
+    addr: SocketAddr,
+    handle: RoomHandle,
+    ws_stream: WebSocketStream<Async<TcpStream>>,
+) {
     let (incoming, outgoing) = ws_stream.split();
 
     // Messages to the player's websocket are mediated by a queue,
@@ -71,19 +71,18 @@ async fn run_player(player_name: String, addr: SocketAddr,
     // main game loop, which would get awkward.
     let (ws_tx, ws_rx) = unbounded();
 
-    {   // Briefly lock the room to add the player
+    {
+        // Briefly lock the room to add the player
         let room = &mut handle.room.lock().unwrap();
         if let Err(e) = room.add_player(addr, player_name.clone(), ws_tx) {
-            error!("[{}] Failed to add player: {:?}",
-                   room.name, e);
+            error!("[{}] Failed to add player: {:?}", room.name, e);
             return;
         }
     }
 
     let write = handle.write.clone();
     let ra = ws_rx
-        .map(|c| bincode::serialize(&c)
-            .unwrap_or_else(|_| panic!("Could not encode {:?}", c)))
+        .map(|c| bincode::serialize(&c).unwrap_or_else(|_| panic!("Could not encode {:?}", c)))
         .map(WebsocketMessage::Binary)
         .map(Ok)
         .forward(incoming);
@@ -93,28 +92,30 @@ async fn run_player(player_name: String, addr: SocketAddr,
     let config = bincode::config::DefaultOptions::new()
         .with_fixint_encoding()
         .allow_trailing_bytes()
-        .with_limit(1024*1024);
-    let rb = outgoing.map(|m|
-        match m {
-            Ok(WebsocketMessage::Binary(t)) =>
-                config.deserialize::<ClientMessage>(&t).ok(),
+        .with_limit(1024 * 1024);
+    let rb = outgoing
+        .map(|m| match m {
+            Ok(WebsocketMessage::Binary(t)) => config.deserialize::<ClientMessage>(&t).ok(),
             _ => None,
         })
         .take_while(|m| future::ready(m.is_some()))
         .map(|m| m.unwrap())
-        .chain(futures::stream::once(async {
-            ClientMessage::Disconnected }))
+        .chain(futures::stream::once(async { ClientMessage::Disconnected }))
         .map(move |m| Ok((addr, m)))
         .forward(write);
     let (ra, rb) = join(ra, rb).await;
 
     if let Err(e) = ra {
-        error!("[{}] Got error {} from player {}'s rx queue",
-               addr, e, player_name);
+        error!(
+            "[{}] Got error {} from player {}'s rx queue",
+            addr, e, player_name
+        );
     }
     if let Err(e) = rb {
-        error!("[{}] Got error {} from player {}'s tx queue",
-               addr, e, player_name);
+        error!(
+            "[{}] Got error {} from player {}'s tx queue",
+            addr, e, player_name
+        );
     }
     info!("[{}] Finished session with {}", addr, player_name);
 }
@@ -136,7 +137,7 @@ struct Player {
     name: String,
     score: u32,
     hand: HashMap<Piece, usize>,
-    ws: Option<UnboundedSender<ServerMessage>>
+    ws: Option<UnboundedSender<ServerMessage>>,
 }
 
 impl Player {
@@ -184,8 +185,10 @@ impl Room {
         for c in self.connections.values() {
             if let Some(ws) = &self.players[*c].ws {
                 if let Err(e) = ws.unbounded_send(s.clone()) {
-                    error!("[{}] Failed to send broadcast to {}: {}",
-                           self.name, self.players[*c].name, e);
+                    error!(
+                        "[{}] Failed to send broadcast to {}: {}",
+                        self.name, self.players[*c].name, e
+                    );
                 }
             }
         }
@@ -196,8 +199,10 @@ impl Room {
             if i != j {
                 if let Some(ws) = p.ws.as_ref() {
                     if let Err(e) = ws.unbounded_send(s.clone()) {
-                        error!("[{}] Failed to send message to {}: {}",
-                               self.name, self.players[j].name, e);
+                        error!(
+                            "[{}] Failed to send message to {}: {}",
+                            self.name, self.players[j].name, e
+                        );
                     }
                 }
             }
@@ -207,17 +212,22 @@ impl Room {
     fn send(&self, i: usize, s: ServerMessage) {
         if let Some(p) = self.players[i].ws.as_ref() {
             if let Err(e) = p.unbounded_send(s) {
-                error!("[{}] Failed to send message to {}: {}",
-                       self.name, self.players[i].name, e);
+                error!(
+                    "[{}] Failed to send message to {}: {}",
+                    self.name, self.players[i].name, e
+                );
             }
         } else {
             error!("[{}] Tried sending message to inactive player", self.name);
         }
     }
 
-    fn add_player(&mut self, addr: SocketAddr, player_name: String,
-                  ws_tx: UnboundedSender<ServerMessage>) -> Result<()>
-    {
+    fn add_player(
+        &mut self,
+        addr: SocketAddr,
+        player_name: String,
+        ws_tx: UnboundedSender<ServerMessage>,
+    ) -> Result<()> {
         // Pick out a hand for our new player
         let hand = self.game.deal(6);
         let mut pieces = Vec::new();
@@ -250,7 +260,8 @@ impl Room {
                 name: player_name,
                 score: 0,
                 hand,
-                ws: Some(ws_tx.clone()) });
+                ws: Some(ws_tx.clone()),
+            });
         }
 
         // At this point, the option must be assigned, so we unwrap it
@@ -263,18 +274,18 @@ impl Room {
         self.started = true;
 
         // Tell the player that they have joined the room
-        ws_tx.unbounded_send(ServerMessage::JoinedRoom{
-                room_name: self.name.clone(),
-                players: self.players.iter()
-                    .map(|p| (p.name.clone(), p.score, p.ws.is_some()))
-                    .collect(),
-                active_player: self.active_player,
-                player_index,
-                board: self.game.board.iter()
-                    .map(|(k, v)| (*k, *v))
-                    .collect(),
-                pieces,
-            })?;
+        ws_tx.unbounded_send(ServerMessage::JoinedRoom {
+            room_name: self.name.clone(),
+            players: self
+                .players
+                .iter()
+                .map(|p| (p.name.clone(), p.score, p.ws.is_some()))
+                .collect(),
+            active_player: self.active_player,
+            player_index,
+            board: self.game.board.iter().map(|(k, v)| (*k, *v)).collect(),
+            pieces,
+        })?;
 
         // Because we've removed pieces from the bag, update the
         // pieces remaining that clients know about.
@@ -284,14 +295,14 @@ impl Room {
 
     fn next_player(&mut self) {
         if !self.connections.is_empty() {
-            self.active_player = (self.active_player + 1) %
-                                  self.players.len();
+            self.active_player = (self.active_player + 1) % self.players.len();
             while self.players[self.active_player].ws.is_none() {
-                self.active_player = (self.active_player + 1) %
-                                      self.players.len();
+                self.active_player = (self.active_player + 1) % self.players.len();
             }
-            debug!("[{}] Active player changed to {}", self.name,
-                   self.players[self.active_player].name);
+            debug!(
+                "[{}] Active player changed to {}",
+                self.name, self.players[self.active_player].name
+            );
 
             self.broadcast(ServerMessage::PlayerTurn(self.active_player));
         }
@@ -300,8 +311,10 @@ impl Room {
     fn on_client_disconnected(&mut self, addr: SocketAddr) {
         if let Some(p) = self.connections.remove(&addr) {
             let player_name = self.players[p].name.clone();
-            info!("[{}] Removed disconnected player '{}'",
-                  self.name, player_name);
+            info!(
+                "[{}] Removed disconnected player '{}'",
+                self.name, player_name
+            );
             self.players[p].ws = None;
             for (k, v) in self.players[p].hand.drain() {
                 for _i in 0..v {
@@ -319,8 +332,10 @@ impl Room {
                 self.next_player();
             }
         } else {
-            error!("[{}] Tried to remove non-existent player at {}",
-                     self.name, addr);
+            error!(
+                "[{}] Tried to remove non-existent player at {}",
+                self.name, addr
+            );
         }
     }
 
@@ -332,20 +347,23 @@ impl Room {
             board.insert((*x, *y), *piece);
         }
         let played = pieces.iter().map(|p| (p.1, p.2)).collect::<Vec<_>>();
-        if !Game::invalid(&board).is_empty() ||
-           !Game::is_linear_connected(&board, &played)
-        {
-            warn!("[{}] Player {} tried to make an illegal move",
-                  self.name, player.name);
+        if !Game::invalid(&board).is_empty() || !Game::is_linear_connected(&board, &played) {
+            warn!(
+                "[{}] Player {} tried to make an illegal move",
+                self.name, player.name
+            );
             self.send(self.active_player, ServerMessage::MoveRejected);
             return;
         }
 
-        {   // Remove the pieces from the player's hand
+        {
+            // Remove the pieces from the player's hand
             let pieces: Vec<Piece> = pieces.iter().map(|p| p.0).collect();
             if !player.try_remove(&pieces) {
-                warn!("[{}] Player {} tried to play an unowned piece",
-                      self.name, player.name);
+                warn!(
+                    "[{}] Player {} tried to play an unowned piece",
+                    self.name, player.name
+                );
                 self.send(self.active_player, ServerMessage::MoveRejected);
                 return;
             }
@@ -373,19 +391,24 @@ impl Room {
             self.send(self.active_player, ServerMessage::MoveAccepted(deal));
 
             // Broadcast the play to other players
-            self.broadcast_except(self.active_player,
-                ServerMessage::Played(pieces.to_vec()));
+            self.broadcast_except(self.active_player, ServerMessage::Played(pieces.to_vec()));
 
             if over {
-                let winner = self.players.iter()
+                let winner = self
+                    .players
+                    .iter()
                     .enumerate()
-                    .max_by_key(|(_i, p)| p.score).unwrap().0;
+                    .max_by_key(|(_i, p)| p.score)
+                    .unwrap()
+                    .0;
                 self.broadcast(ServerMessage::ItsOver(winner));
                 self.ended = true;
             }
         } else {
-            warn!("[{}] Player {} snuck an illegal move past the first filters",
-                  self.name, player.name);
+            warn!(
+                "[{}] Player {} snuck an illegal move past the first filters",
+                self.name, player.name
+            );
             self.send(self.active_player, ServerMessage::MoveRejected);
         }
     }
@@ -393,8 +416,10 @@ impl Room {
     fn on_swap(&mut self, pieces: &[Piece]) {
         let player = &mut self.players[self.active_player];
         if !player.try_remove(pieces) {
-            warn!("[{}] Player {} tried to play an unowned piece",
-                  self.name, player.name);
+            warn!(
+                "[{}] Player {} tried to play an unowned piece",
+                self.name, player.name
+            );
             self.send(self.active_player, ServerMessage::MoveRejected);
         } else if let Some(deal) = self.game.swap(pieces) {
             for piece in deal.iter() {
@@ -407,29 +432,40 @@ impl Room {
             // PiecesRemaining to the players.
             self.broadcast(ServerMessage::Swapped(pieces.len()));
         } else {
-            warn!("[{}] Player {} couldn't be dealt {} pieces",
-                  self.name, player.name,
-                  pieces.len());
+            warn!(
+                "[{}] Player {} couldn't be dealt {} pieces",
+                self.name,
+                player.name,
+                pieces.len()
+            );
         }
     }
 
     fn on_message(&mut self, addr: SocketAddr, msg: ClientMessage) -> bool {
-        trace!("[{}] Got message {:?} from {}", self.name, msg,
-                self.connections.get(&addr)
-                    .map(|i| self.players[*i].name.clone())
-                    .unwrap_or_else(|| format!("unknown player at {}", addr)));
+        trace!(
+            "[{}] Got message {:?} from {}",
+            self.name,
+            msg,
+            self.connections
+                .get(&addr)
+                .map(|i| self.players[*i].name.clone())
+                .unwrap_or_else(|| format!("unknown player at {}", addr))
+        );
         match msg {
             ClientMessage::Disconnected => self.on_client_disconnected(addr),
             ClientMessage::Chat(c) => {
-                let name = self.connections.get(&addr)
+                let name = self
+                    .connections
+                    .get(&addr)
                     .map_or("unknown", |i| &self.players[*i].name);
-                self.broadcast(ServerMessage::Chat{
-                            from: name.to_string(),
-                            message: c});
-            },
+                self.broadcast(ServerMessage::Chat {
+                    from: name.to_string(),
+                    message: c,
+                });
+            }
             ClientMessage::CreateRoom(_) | ClientMessage::JoinRoom(_, _) => {
                 warn!("[{}] Invalid client message {:?}", self.name, msg);
-            },
+            }
             ClientMessage::Play(pieces) => {
                 if self.ended {
                     warn!("[{}] Got play after move ended", self.name);
@@ -445,7 +481,7 @@ impl Room {
                 } else {
                     warn!("[{}] Invalid player {}", self.name, addr);
                 }
-            },
+            }
             ClientMessage::Swap(pieces) => {
                 if self.ended {
                     warn!("[{}] Got play after move ended", self.name);
@@ -459,23 +495,23 @@ impl Room {
                 } else {
                     warn!("[{}] Invalid player {}", self.name, addr);
                 }
-            },
+            }
         }
         self.running()
     }
 }
 
-fn next_room_name(rooms: &mut HashMap<String, RoomHandle>,
-                  handle: RoomHandle) -> String
-{
+fn next_room_name(rooms: &mut HashMap<String, RoomHandle>, handle: RoomHandle) -> String {
     // This loop should only run once, unless we're starting to saturate the
     // space of possible room names (which is quite large)
     let mut rng = rand::thread_rng();
     loop {
-        let room_name = format!("{} {} {}",
+        let room_name = format!(
+            "{} {} {}",
             WORD_LIST[rng.gen_range(0, WORD_LIST.len())],
             WORD_LIST[rng.gen_range(0, WORD_LIST.len())],
-            WORD_LIST[rng.gen_range(0, WORD_LIST.len())]);
+            WORD_LIST[rng.gen_range(0, WORD_LIST.len())]
+        );
         use std::collections::hash_map::Entry;
         if let Entry::Vacant(v) = rooms.entry(room_name.clone()) {
             v.insert(handle);
@@ -484,16 +520,15 @@ fn next_room_name(rooms: &mut HashMap<String, RoomHandle>,
     }
 }
 
-async fn handle_connection(rooms: RoomList,
-                           raw_stream: Async<TcpStream>,
-                           addr: SocketAddr,
-                           mut close_room: UnboundedSender<String>)
-    -> Result<()>
-{
+async fn handle_connection(
+    rooms: RoomList,
+    raw_stream: Async<TcpStream>,
+    addr: SocketAddr,
+    mut close_room: UnboundedSender<String>,
+) -> Result<()> {
     info!("[{}] Incoming TCP connection", addr);
 
-    let mut ws_stream = async_tungstenite::accept_async(raw_stream)
-        .await?;
+    let mut ws_stream = async_tungstenite::accept_async(raw_stream).await?;
     info!("[{}] WebSocket connection established", addr);
 
     // Clients are only allowed to send text messages at this stage.
@@ -518,15 +553,20 @@ async fn handle_connection(rooms: RoomList,
                     let map = &mut rooms.lock().unwrap();
                     next_room_name(map, handle.clone())
                 };
-                info!("[{}] Creating room '{}' for player {}",
-                      addr, room_name, player_name);
+                info!(
+                    "[{}] Creating room '{}' for player {}",
+                    addr, room_name, player_name
+                );
                 handle.room.lock().unwrap().name = room_name.clone();
 
                 // To avoid spawning a new task, we'll use this task to run
                 // both the player's tx/rx queues *and* the room itself.
                 let mut h = handle.clone();
-                join(h.run_room(read),
-                     run_player(player_name, addr, handle, ws_stream)).await;
+                join(
+                    h.run_room(read),
+                    run_player(player_name, addr, handle, ws_stream),
+                )
+                .await;
 
                 info!("[{}] All players left, closing room.", room_name);
                 if let Err(e) = close_room.send(room_name.clone()).await {
@@ -534,11 +574,10 @@ async fn handle_connection(rooms: RoomList,
                 }
 
                 return Ok(());
-            },
+            }
             ClientMessage::JoinRoom(name, room_name) => {
                 // Log to link address and player name
-                info!("[{}] Player {} sent JoinRoom({})",
-                      addr, name, room_name);
+                info!("[{}] Player {} sent JoinRoom({})", addr, name, room_name);
 
                 // If the room name is valid, then join it by passing
                 // the new user and their connection into the room task
@@ -558,16 +597,15 @@ async fn handle_connection(rooms: RoomList,
                         return Ok(());
                     } else {
                         // Not enough pieces, so report an error to the client
-                        let msg = ServerMessage::JoinFailed(
-                            "Not enough pieces left".to_string());
+                        let msg = ServerMessage::JoinFailed("Not enough pieces left".to_string());
                         let encoded = bincode::serialize(&msg)?;
                         ws_stream.send(WebsocketMessage::Binary(encoded)).await?;
                     }
                 } else {
                     // Otherwise, reply that we don't know anything about that
                     // particular room name.
-                    let msg = ServerMessage::JoinFailed(
-                        format!("Could not find room '{}'", room_name));
+                    let msg =
+                        ServerMessage::JoinFailed(format!("Could not find room '{}'", room_name));
                     let encoded = bincode::serialize(&msg)?;
                     ws_stream.send(WebsocketMessage::Binary(encoded)).await?;
                 }
@@ -585,8 +623,7 @@ async fn handle_connection(rooms: RoomList,
 }
 
 fn main() -> Result<(), IoError> {
-    env_logger::from_env(Env::default().default_filter_or("pont_server=INFO"))
-        .init();
+    env_logger::from_env(Env::default().default_filter_or("pont_server=INFO")).init();
 
     // Create an executor thread pool.
     for _ in 0..num_cpus::get().max(1) {
@@ -606,11 +643,13 @@ fn main() -> Result<(), IoError> {
                 info!("Closing room [{}]", r);
                 rooms.lock().unwrap().remove(&r);
             }
-        }).detach();
+        })
+        .detach();
         tx
     };
 
-    {   // Periodically print the number of open rooms to the logs
+    {
+        // Periodically print the number of open rooms to the logs
         let rooms = rooms.clone();
         Task::spawn(async move {
             let mut prev_count = 0;
@@ -622,7 +661,8 @@ fn main() -> Result<(), IoError> {
                     prev_count = count;
                 }
             }
-        }).detach()
+        })
+        .detach()
     }
 
     // The target address + port is optionally specified on the command line
@@ -633,20 +673,18 @@ fn main() -> Result<(), IoError> {
     smol::block_on(async {
         // Create the event loop and TCP listener we'll accept connections on.
         info!("Listening on: {}", addr);
-        let listener = Async::<TcpListener>::bind(addr)
-            .expect("Could not create listener");
+        let listener = Async::<TcpListener>::bind(addr).expect("Could not create listener");
 
         // The main loop accepts incoming connections asynchronously
         while let Ok((stream, addr)) = listener.accept().await {
             let close_room = close_room.clone();
             let rooms = rooms.clone();
             Task::spawn(async move {
-                if let Err(e) = handle_connection(rooms, stream,
-                                                  addr, close_room).await
-                {
+                if let Err(e) = handle_connection(rooms, stream, addr, close_room).await {
                     warn!("Failed to handle connection from {}: {}", addr, e);
                 }
-            }).detach();
+            })
+            .detach();
         }
     });
 
