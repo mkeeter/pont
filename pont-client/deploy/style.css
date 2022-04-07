@@ -150,11 +150,14 @@ div#game {
 table#score_table {
     table-layout: fixed;
     width: 100%;
-    margin-bottom: 20px;
     border-collapse: collapse;
 }
 th {
     border-bottom: 1px solid var(--dark4);
+    padding-bottom: 4px;
+}
+tr.player-row td {
+    padding: 4px;
 }
 tr.player-row i {
     visibility: hidden;
@@ -280,12 +283,16 @@ div#exchange_div p {
     top: 50%;
     transform: translateY(-50%);
 }
-
+div#count_div {
+    padding-top: 4px;
+    padding-bottom: 20px;
+}
 div#count_div p {
     color: var(--dark4);
     text-align: center;
-    padding-top: 10px;
-    border-top: 1px solid var(--light4);
+    border-top: 1px solid var(--dark4);
+    margin: 0px;
+    padding-top: 5px;
 }
 
 /*  This is only used for layout things */
