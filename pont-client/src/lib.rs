@@ -1563,13 +1563,14 @@ impl CreateOrJoin {
         if player_name.contains("keeter")
             || (player_name.contains("bill") && player_name.contains("karen"))
         {
-            self.base
-                .doc
-                .get_element_by_id("babyletto")
-                .expect("Could not get babyletto div")
-                .dyn_into::<HtmlElement>()?
-                .style()
-                .set_property("display", "flex")?;
+            // Fail safe if the web page was cached
+            self.base.doc.get_element_by_id("babyletto").and_then(|e| {
+                e.dyn_into::<HtmlElement>()
+                    .ok()?
+                    .style()
+                    .set_property("display", "flex")
+                    .ok()
+            });
         }
 
         let mut p = Playing::new(
