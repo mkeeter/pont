@@ -394,3 +394,31 @@ svg.example {
     border:1px solid var(--dark4);
     background-color: var(--light0);
 }
+
+/******************************************************************************/
+/* JOKE STUFF */
+div#outer_main {
+    display: flex;
+}
+
+div#main_contents {
+    flex: 1;
+    min-width: 0;
+}
+
+
+#babyletto {
+    width: 200px; /* fixed width for image column */
+    flex-shrink: 0; /* prevents column from shrinking */
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    box-sizing: border-box;
+}
+
+#babyletto img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+}

@@ -1559,6 +1559,19 @@ impl CreateOrJoin {
             .dyn_into::<HtmlElement>()?
             .set_hidden(false);
 
+        let player_name = players[player_index].0.to_lowercase();
+        if player_name.contains("keeter")
+            || (player_name.contains("bill") && player_name.contains("karen"))
+        {
+            self.base
+                .doc
+                .get_element_by_id("babyletto")
+                .expect("Could not get babyletto div")
+                .dyn_into::<HtmlElement>()?
+                .style()
+                .set_property("display", "flex")?;
+        }
+
         let mut p = Playing::new(
             self.base,
             room_name,
