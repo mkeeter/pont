@@ -177,13 +177,6 @@ impl Game {
         if xmin != xmax && ymin != ymax {
             return false;
         }
-        for x in xmin..=xmax {
-            for y in ymin..=ymax {
-                if !board.contains_key(&(x, y)) {
-                    return false;
-                }
-            }
-        }
         true
     }
 
