@@ -12,11 +12,17 @@ authors = ["Matt Keeter"]
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
+anyhow = "1"
 bincode = { version = "=2", features = ["serde"] }
 console_error_panic_hook = "0.1.7"
+env_logger = "0.11.11"
+futures-util = "0.3.34"
 js-sys = "0.3.107"
-web-sys = "0.3.107"
-wasm-bindgen = "0.2.130"
-vergen = "3"
-serde = { version = "1.0.229", features = ["derive"] }
+log = "0.4.35"
 rand = "0.10.3"
+serde = { version = "1.0.229", features = ["derive"] }
+tokio = { version = "1.54.1", features = ["macros", "sync", "rt-multi-thread", "time"] }
+tokio-tungstenite = "0.30.0"
+vergen = "3"
+wasm-bindgen = "0.2.130"
+web-sys = "0.3.107"

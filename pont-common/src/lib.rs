@@ -90,7 +90,8 @@ impl Game {
         let mut seen_rows = HashSet::new();
         let mut seen_cols = HashSet::new();
         let f = |v: Vec<(Piece, (i32, i32))>| -> Vec<(i32, i32)> {
-            let mut v = v.into_iter().map(|(_p, (x, y))| (x, y)).collect::<Vec<_>>();
+            let mut v =
+                v.into_iter().map(|(_p, (x, y))| (x, y)).collect::<Vec<_>>();
             v.sort();
             v
         };
@@ -165,7 +166,10 @@ impl Game {
     // Checks whether the given play is linear and connected
     //
     // The board must already include the pieces in played
-    pub fn is_linear_connected(board: &HashMap<(i32, i32), Piece>, played: &[(i32, i32)]) -> bool {
+    pub fn is_linear_connected(
+        board: &HashMap<(i32, i32), Piece>,
+        played: &[(i32, i32)],
+    ) -> bool {
         let xmin = played.iter().map(|p| p.0).min().unwrap_or(0);
         let ymin = played.iter().map(|p| p.1).min().unwrap_or(0);
         let xmax = played.iter().map(|p| p.0).max().unwrap_or(0);
@@ -185,7 +189,10 @@ impl Game {
         true
     }
 
-    fn explore_from<T>(board: &HashMap<(i32, i32), Piece>, f: T) -> Vec<(Piece, (i32, i32))>
+    fn explore_from<T>(
+        board: &HashMap<(i32, i32), Piece>,
+        f: T,
+    ) -> Vec<(Piece, (i32, i32))>
     where
         T: Fn(i32) -> (i32, i32),
     {
