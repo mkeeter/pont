@@ -15,6 +15,7 @@ bincode.workspace = true
 wasm-bindgen.workspace = true
 js-sys.workspace = true
 console_error_panic_hook.workspace = true
+getrandom.workspace = true
 
 [dependencies.web-sys]
 workspace = true
