@@ -1,0 +1,22 @@
+[workspace]
+resolver = "3"
+members = [
+    "pont-client",
+    "pont-common",
+    "pont-server",
+]
+
+[workspace.package]
+edition = "2024"
+authors = ["Matt Keeter"]
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+bincode = { version = "=2", features = ["serde"] }
+console_error_panic_hook = "0.1.7"
+js-sys = "0.3.107"
+web-sys = "0.3.107"
+wasm-bindgen = "0.2.130"
+vergen = "3"
+serde = { version = "1.0.229", features = ["derive"] }
+rand = "0.10.3"

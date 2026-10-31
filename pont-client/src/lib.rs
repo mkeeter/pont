@@ -1,6 +1,6 @@
+use wasm_bindgen::JsCast;
 use wasm_bindgen::convert::FromWasmAbi;
 use wasm_bindgen::prelude::*;
-use wasm_bindgen::JsCast;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
@@ -310,7 +310,7 @@ impl Board {
         let t = e.get_attribute("transform").unwrap();
         let s = t
             .chars()
-            .filter(|&c| c.is_digit(10) || c == ' ' || c == '.' || c == '-')
+            .filter(|&c| c.is_ascii_digit() || c == ' ' || c == '.' || c == '-')
             .collect::<String>();
         let mut itr = s.split(' ').map(|s| s.parse().unwrap());
 
@@ -341,8 +341,8 @@ impl Board {
         let target = evt.target().unwrap().dyn_into::<Element>()?;
         target.set_pointer_capture(evt.pointer_id())?;
 
-        let mut options = AddEventListenerOptions::new();
-        options.passive(false);
+        let options = AddEventListenerOptions::new();
+        options.set_passive(false);
         let pointer_id = evt.pointer_id();
         target.set_pointer_capture(pointer_id)?;
         target
@@ -480,8 +480,8 @@ impl Board {
         // Move to the back of the SVG object, so it's on top
         self.svg.append_child(&target)?;
 
-        let mut options = AddEventListenerOptions::new();
-        options.passive(false);
+        let options = AddEventListenerOptions::new();
+        options.set_passive(false);
         let pointer_id = evt.pointer_id();
         target.set_pointer_capture(pointer_id)?;
         target
@@ -526,11 +526,7 @@ impl Board {
 
             // Clamp to the window's bounds
             for c in [&mut x, &mut y].iter_mut() {
-                if **c < 0.0 {
-                    **c = 0.0;
-                } else if **c > 190.0 {
-                    **c = 190.0;
-                }
+                **c = c.clamp(0.0, 190.0);
             }
             // If this isn't your turn, then you're only allowed to rearrange
             // pieces within your rack, which we enforce by clamping x and y
@@ -554,8 +550,7 @@ impl Board {
             // to return it to the hand.
             if y >= 165.0 {
                 if self.tentative.is_empty()
-                    && x >= 95.0
-                    && x <= 140.0
+                    && (95.0..=140.0).contains(&x)
                     && self.exchange_list.len() < self.pieces_remaining
                 {
                     return Ok((pos, DropTarget::Exchange));
@@ -719,7 +714,7 @@ impl Board {
                         // or exchange region, in which case, we do a slightly
                         // modified animation
                         let mut target_in_hand = true;
-                        for (_k, v) in self.tentative.iter_mut() {
+                        for v in self.tentative.values_mut() {
                             if *v == i {
                                 *v = d.hand_index;
                                 target_in_hand = false;
@@ -904,8 +899,8 @@ impl Board {
             &format!("translate({} 185)", 5 + 15 * self.hand.len()),
         )?;
 
-        let mut options = AddEventListenerOptions::new();
-        options.passive(false);
+        let options = AddEventListenerOptions::new();
+        options.set_passive(false);
         g.add_event_listener_with_callback_and_add_event_listener_options(
             "pointerdown",
             self.pointer_down_cb.as_ref().unchecked_ref(),
@@ -1301,9 +1296,11 @@ pub struct Base {
 
 impl Base {
     fn send(&self, msg: ClientMessage) -> JsError {
-        let encoded = bincode::serialize(&msg).map_err(|e| {
-            JsValue::from_str(&format!("Could not encode: {}", e))
-        })?;
+        let encoded =
+            bincode::serde::encode_to_vec(&msg, bincode::config::standard())
+                .map_err(|e| {
+                    JsValue::from_str(&format!("Could not encode: {}", e))
+                })?;
         self.ws.send_with_u8_array(&encoded[..])
     }
 }
@@ -1349,6 +1346,7 @@ struct Playing {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#[expect(clippy::large_enum_variant)]
 enum State {
     Connecting(Connecting),
     CreateOrJoin(CreateOrJoin),
@@ -1409,9 +1407,9 @@ unsafe impl Send for State {
     /* YOLO */
 }
 
-lazy_static::lazy_static! {
-    static ref HANDLE: Mutex<State> = Mutex::new(State::Empty);
-}
+static HANDLE: std::sync::LazyLock<Mutex<State>> =
+    std::sync::LazyLock::new(|| Mutex::new(State::Empty));
+
 ////////////////////////////////////////////////////////////////////////////////
 
 // Boilerplate to wrap and bind a callback.
@@ -2101,11 +2099,14 @@ pub fn main() -> JsError {
         let buf = js_sys::Uint8Array::new(&result);
         let mut data = vec![0; buf.length() as usize];
         buf.copy_to(&mut data[..]);
-        let msg = bincode::deserialize(&data[..])
-            .map_err(|e| {
-                JsValue::from_str(&format!("Failed to deserialize: {}", e))
-            })
-            .expect("Could not decode message");
+        let (msg, _) = bincode::serde::decode_from_slice(
+            &data[..],
+            bincode::config::standard(),
+        )
+        .map_err(|e| {
+            JsValue::from_str(&format!("Failed to deserialize: {}", e))
+        })
+        .expect("Could not decode message");
         on_message(msg).expect("Message decoding failed")
     }) as Box<dyn FnMut(ProgressEvent)>);
     set_event_cb(&ws, "message", move |e: MessageEvent| {
