@@ -28,8 +28,12 @@ dist:
         | sed s/WAHASH/{{replace_regex(sha256_file(PKG_WA), CUT8, "")}}/g \
         | sed s/CSSHASH/{{replace_regex(sha256_file(PKG_CSS), CUT8, "")}}/g \
         > {{DIST_DIR}}/index.html
-    cp -r pont-client/static/htaccess {{DIST_DIR}}/.htaccess
-    cp -r pont-client/static/style.css {{DIST_DIR}}/style.{{replace_regex(sha256_file(PKG_CSS), CUT8, "")}}.css
+    cp pont-client/static/htaccess {{DIST_DIR}}/.htaccess
+    cp pont-client/static/style.css {{DIST_DIR}}/style.{{replace_regex(sha256_file(PKG_CSS), CUT8, "")}}.css
+    cat {{STATIC_DIR}}/rules.html  \
+        | sed 's/style\.css/style.{{replace_regex(sha256_file(PKG_CSS), CUT8, "")}}.css/g' \
+        > {{DIST_DIR}}/rules.html
+    cp {{STATIC_DIR}}/favicon.ico {{DIST_DIR}}/favicon.ico
 
 serve:
     just dist

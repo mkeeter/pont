@@ -13,7 +13,7 @@ use anyhow::Result;
 use futures_util::{SinkExt, StreamExt};
 use tokio::{
     net::{TcpListener, TcpStream},
-    sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
+    sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
 };
 use tokio_tungstenite::WebSocketStream;
 use tungstenite::Message as WebsocketMessage;
@@ -93,6 +93,7 @@ async fn run_player(
                 .send(WebsocketMessage::Binary(encoded.into()))
                 .await?;
         }
+        outgoing.close().await?;
         Ok::<(), anyhow::Error>(())
     };
 
