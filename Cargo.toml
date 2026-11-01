@@ -25,5 +25,5 @@ tokio = { version = "1.54.1", features = ["macros", "sync", "rt-multi-thread", "
 tokio-tungstenite = "0.30.0"
 vergen = "3"
 wasm-bindgen = "0.2.130"
-web-sys = "0.3.107"
+web-sys = { version = "0.3.107", features = ["AddEventListenerOptions","Blob", "console", "Document", "DomTokenList", "Element", "EventTarget", "FileReader", "HtmlCollection", "HtmlElement", "HtmlButtonElement", "HtmlInputElement", "KeyboardEvent", "Location", "MessageEvent", "Node", "NodeList", "Performance", "PointerEvent", "ProgressEvent", "SvgElement", "SvgGraphicsElement", "SvgMatrix", "WebSocket", "Window"] }
 getrandom = { version = "0.4", features = ["wasm_js"] }

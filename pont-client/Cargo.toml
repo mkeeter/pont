@@ -16,36 +16,7 @@ wasm-bindgen.workspace = true
 js-sys.workspace = true
 console_error_panic_hook.workspace = true
 getrandom.workspace = true
-
-[dependencies.web-sys]
-workspace = true
-features = [
-  'AddEventListenerOptions',
-  'Blob',
-  'console',
-  'Document',
-  'DomTokenList',
-  'Element',
-  'EventTarget',
-  'FileReader',
-  'HtmlCollection',
-  'HtmlElement',
-  'HtmlButtonElement',
-  'HtmlInputElement',
-  'KeyboardEvent',
-  'Location',
-  'MessageEvent',
-  'Node',
-  'NodeList',
-  'Performance',
-  'PointerEvent',
-  'ProgressEvent',
-  'SvgElement',
-  'SvgGraphicsElement',
-  'SvgMatrix',
-  'WebSocket',
-  'Window',
-]
+web-sys.workspace = true
 
 [build-dependencies]
 vergen.workspace = true

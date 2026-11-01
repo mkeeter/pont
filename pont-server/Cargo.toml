@@ -1,9 +1,10 @@
 [package]
 name = "pont-server"
-version = "0.1.0"
-authors = ["Matt Keeter <matt.j.keeter@gmail.com>"]
-edition = "2018"
-license = "MIT OR Apache-2.0"
+version = "0.2.0"
+
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
 
 [dependencies]
 anyhow.workspace = true
