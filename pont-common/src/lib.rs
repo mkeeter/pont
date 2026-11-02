@@ -1,7 +1,7 @@
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use serde::{Serialize, Deserialize};
 
-use rand::thread_rng;
+use rand::rng;
 use rand::seq::SliceRandom;
 
 #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -81,16 +81,17 @@ impl Game {
             use std::collections::hash_map::Entry;
             match self.board.entry((*x, *y)) {
                 Entry::Occupied(_) => return None,
-                Entry::Vacant(v) => { v.insert(*p); }
+                Entry::Vacant(v) => {
+                    v.insert(*p);
+                }
             }
         }
         let mut score = 0;
         let mut seen_rows = HashSet::new();
         let mut seen_cols = HashSet::new();
         let f = |v: Vec<(Piece, (i32, i32))>| -> Vec<(i32, i32)> {
-            let mut v = v.into_iter()
-                .map(|(_p, (x, y))| (x, y))
-                .collect::<Vec<_>>();
+            let mut v =
+                v.into_iter().map(|(_p, (x, y))| (x, y)).collect::<Vec<_>>();
             v.sort();
             v
         };
@@ -115,7 +116,7 @@ impl Game {
     }
 
     pub fn shuffle(&mut self) {
-        self.bag.shuffle(&mut thread_rng());
+        self.bag.shuffle(&mut rng());
     }
 
     pub fn deal(&mut self, n: usize) -> HashMap<Piece, usize> {
@@ -137,7 +138,7 @@ impl Game {
             for p in pieces.iter() {
                 self.bag.push(*p);
             }
-            self.bag.shuffle(&mut thread_rng());
+            self.bag.shuffle(&mut rng());
             Some(out)
         } else {
             None
@@ -145,8 +146,7 @@ impl Game {
     }
 
     fn connected(board: &HashMap<(i32, i32), Piece>) -> bool {
-        let mut todo: Vec<(i32, i32)> =
-            board.keys().take(1).cloned().collect();
+        let mut todo: Vec<(i32, i32)> = board.keys().take(1).cloned().collect();
 
         let mut seen = HashSet::new();
         while let Some(t) = todo.pop() {
@@ -166,8 +166,10 @@ impl Game {
     // Checks whether the given play is linear and connected
     //
     // The board must already include the pieces in played
-    pub fn is_linear_connected(board: &HashMap<(i32, i32), Piece>,
-                               played: &[(i32, i32)]) -> bool {
+    pub fn is_linear_connected(
+        board: &HashMap<(i32, i32), Piece>,
+        played: &[(i32, i32)],
+    ) -> bool {
         let xmin = played.iter().map(|p| p.0).min().unwrap_or(0);
         let ymin = played.iter().map(|p| p.1).min().unwrap_or(0);
         let xmax = played.iter().map(|p| p.0).max().unwrap_or(0);
@@ -187,24 +189,27 @@ impl Game {
         true
     }
 
-    fn explore_from<T>(board: &HashMap<(i32, i32), Piece>, f: T)
-        -> Vec<(Piece, (i32, i32))>
-        where T: Fn(i32) -> (i32, i32)
+    fn explore_from<T>(
+        board: &HashMap<(i32, i32), Piece>,
+        f: T,
+    ) -> Vec<(Piece, (i32, i32))>
+    where
+        T: Fn(i32) -> (i32, i32),
     {
-            let mut out = Vec::new();
-            let mut run = |g: &dyn Fn(i32) -> i32| {
-                for i in 0.. {
-                    let c = f(g(i));
-                    if let Some(piece) = board.get(&c) {
-                        out.push((*piece, c));
-                    } else {
-                        break;
-                    }
+        let mut out = Vec::new();
+        let mut run = |g: &dyn Fn(i32) -> i32| {
+            for i in 0.. {
+                let c = f(g(i));
+                if let Some(piece) = board.get(&c) {
+                    out.push((*piece, c));
+                } else {
+                    break;
                 }
-            };
-            run(&|i| i);
-            run(&|i| (-i - 1));
-            out
+            }
+        };
+        run(&|i| i);
+        run(&|i| -i - 1);
+        out
     }
 
     // Checks whether the given board is valid,
@@ -282,10 +287,11 @@ impl Default for Game {
                 }
             }
         }
-        bag.shuffle(&mut thread_rng());
+        bag.shuffle(&mut rng());
 
         Game {
-            board: HashMap::new(), bag
+            board: HashMap::new(),
+            bag,
         }
     }
 }

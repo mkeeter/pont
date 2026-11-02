@@ -1,36 +1,34 @@
 use env_logger::Env;
 use log::{debug, error, info, trace, warn};
-use rand::Rng;
 use std::{
     collections::HashMap,
     env,
     io::Error as IoError,
-    net::{SocketAddr, TcpListener, TcpStream},
-    sync::{Arc, Mutex},
+    net::SocketAddr,
+    sync::{Arc, LazyLock, Mutex},
     time::Duration,
 };
 
-use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
-use futures::sink::SinkExt;
-use futures::stream::StreamExt;
-use futures::{future, future::join};
-
 use anyhow::Result;
-use async_tungstenite::WebSocketStream;
-use smol::{Async, Task, Timer};
+use futures_util::{SinkExt, StreamExt};
+use tokio::{
+    net::{TcpListener, TcpStream},
+    sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
+};
+use tokio_tungstenite::WebSocketStream;
 use tungstenite::Message as WebsocketMessage;
 
 use pont_common::{ClientMessage, Game, Piece, ServerMessage};
 
 ////////////////////////////////////////////////////////////////////////////////
 
-lazy_static::lazy_static! {
-    // words.txt is the EFF's random word list for passphrases
-    static ref WORD_LIST: Vec<&'static str> = include_str!("words.txt")
+// words.txt is the EFF's random word list for passphrases
+static WORD_LIST: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
+    include_str!("words.txt")
         .split('\n')
         .filter(|w| !w.is_empty())
-        .collect();
-}
+        .collect()
+});
 
 // Normally, a room exists as a relatively standalone task:
 // Client websockets send their messages to `write`, and `run_room` reads
@@ -47,8 +45,11 @@ struct RoomHandle {
 }
 
 impl RoomHandle {
-    async fn run_room(&mut self, mut read: UnboundedReceiver<TaggedClientMessage>) {
-        while let Some((addr, msg)) = read.next().await {
+    async fn run_room(
+        &mut self,
+        mut read: UnboundedReceiver<TaggedClientMessage>,
+    ) {
+        while let Some((addr, msg)) = read.recv().await {
             if !self.room.lock().unwrap().on_message(addr, msg) {
                 break;
             }
@@ -60,16 +61,15 @@ async fn run_player(
     player_name: String,
     addr: SocketAddr,
     handle: RoomHandle,
-    ws_stream: WebSocketStream<Async<TcpStream>>,
+    ws_stream: WebSocketStream<TcpStream>,
 ) {
-    let (incoming, outgoing) = ws_stream.split();
+    let (mut outgoing, mut incoming) = ws_stream.split();
 
-    // Messages to the player's websocket are mediated by a queue,
-    // with a separate async task reading messages from the queue
-    // and pushing them down the websocket.  This lets us send messages to
-    // a player without blocking or needing an extra await in the
-    // main game loop, which would get awkward.
-    let (ws_tx, ws_rx) = unbounded();
+    // Messages to the player's websocket are mediated by a queue, with a
+    // separate async task reading messages from the queue and pushing them down
+    // the websocket.  This lets us send messages to a player without blocking
+    // or needing an extra await in the main game loop, which would get awkward.
+    let (ws_tx, mut ws_rx) = unbounded_channel();
 
     {
         // Briefly lock the room to add the player
@@ -81,43 +81,61 @@ async fn run_player(
     }
 
     let write = handle.write.clone();
-    let ra = ws_rx
-        .map(|c| bincode::serialize(&c).unwrap_or_else(|_| panic!("Could not encode {:?}", c)))
-        .map(WebsocketMessage::Binary)
-        .map(Ok)
-        .forward(incoming);
+    let name = player_name.as_str();
 
-    // Match the config for bincode::deserialize, plus 1M size limit
-    use bincode::Options;
-    let config = bincode::config::DefaultOptions::new()
-        .with_fixint_encoding()
-        .allow_trailing_bytes()
-        .with_limit(1024 * 1024);
-    let rb = outgoing
-        .map(|m| match m {
-            Ok(WebsocketMessage::Binary(t)) => config.deserialize::<ClientMessage>(&t).ok(),
-            _ => None,
-        })
-        .take_while(|m| future::ready(m.is_some()))
-        .map(|m| m.unwrap())
-        .chain(futures::stream::once(async { ClientMessage::Disconnected }))
-        .map(move |m| Ok((addr, m)))
-        .forward(write);
-    let (ra, rb) = join(ra, rb).await;
+    // Message from the game server are serialized and sent to the websocket
+    let game_to_client = async move {
+        while let Some(v) = ws_rx.recv().await {
+            let encoded =
+                bincode::serde::encode_to_vec(&v, bincode::config::standard())
+                    .unwrap_or_else(|_| panic!("Could not encode {:?}", v));
+            outgoing
+                .send(WebsocketMessage::Binary(encoded.into()))
+                .await?;
+        }
+        outgoing.close().await?;
+        Ok::<(), anyhow::Error>(())
+    };
 
-    if let Err(e) = ra {
-        error!(
-            "[{}] Got error {} from player {}'s rx queue",
-            addr, e, player_name
-        );
+    // Message from the websocket are deserialized and sent to the game server
+    let client_to_game = async move {
+        // We add a 1M size limit when deserializing incoming messages
+        let config =
+            bincode::config::standard().with_limit::<{ 1024 * 1024 }>();
+        while let Some(v) = incoming.next().await {
+            if let Ok(WebsocketMessage::Binary(t)) = v {
+                let t = match bincode::serde::decode_from_slice(&t, config) {
+                    Ok((t, _size)) => t,
+                    Err(e) => {
+                        warn!("[{addr}] Got recv error {e} from player {name}");
+                        break;
+                    }
+                };
+                if let Err(e) = write.send((addr, t)) {
+                    warn!("[{addr}] Got room send error {e} to player {name}");
+                    break;
+                }
+            }
+        }
+        // When the client disconnets, let the room know
+        if let Err(e) = handle.write.send((addr, ClientMessage::Disconnected)) {
+            warn!(
+                "[{addr}] Could not send final `Disconnected` \
+                          to room for player {name} ({e})"
+            );
+        }
+        Ok::<(), anyhow::Error>(())
+    };
+
+    // We'll wait for both queues to end
+    let (g2c, c2g) = tokio::join!(game_to_client, client_to_game);
+    if let Err(e) = g2c {
+        error!("[{addr}] Got error {e} from player {name}'s tx queue",);
     }
-    if let Err(e) = rb {
-        error!(
-            "[{}] Got error {} from player {}'s tx queue",
-            addr, e, player_name
-        );
+    if let Err(e) = c2g {
+        error!("[{addr}] Got error {e} from player {name}'s rx queue",);
     }
-    info!("[{}] Finished session with {}", addr, player_name);
+    info!("[{addr}] Finished session with {name}");
 }
 
 type RoomList = Arc<Mutex<HashMap<String, RoomHandle>>>;
@@ -150,7 +168,7 @@ impl Player {
         }
 
         for (piece, n) in count.iter() {
-            if let Some(m) = self.hand.get(&piece) {
+            if let Some(m) = self.hand.get(piece) {
                 if *m < *n {
                     return false;
                 }
@@ -160,7 +178,7 @@ impl Player {
         }
 
         for (piece, n) in count.iter() {
-            if let Some(m) = self.hand.get_mut(&piece) {
+            if let Some(m) = self.hand.get_mut(piece) {
                 *m -= n;
             }
         }
@@ -184,7 +202,7 @@ impl Room {
     fn broadcast(&self, s: ServerMessage) {
         for c in self.connections.values() {
             if let Some(ws) = &self.players[*c].ws {
-                if let Err(e) = ws.unbounded_send(s.clone()) {
+                if let Err(e) = ws.send(s.clone()) {
                     error!(
                         "[{}] Failed to send broadcast to {}: {}",
                         self.name, self.players[*c].name, e
@@ -198,7 +216,7 @@ impl Room {
         for (j, p) in self.players.iter().enumerate() {
             if i != j {
                 if let Some(ws) = p.ws.as_ref() {
-                    if let Err(e) = ws.unbounded_send(s.clone()) {
+                    if let Err(e) = ws.send(s.clone()) {
                         error!(
                             "[{}] Failed to send message to {}: {}",
                             self.name, self.players[j].name, e
@@ -211,7 +229,7 @@ impl Room {
 
     fn send(&self, i: usize, s: ServerMessage) {
         if let Some(p) = self.players[i].ws.as_ref() {
-            if let Err(e) = p.unbounded_send(s) {
+            if let Err(e) = p.send(s) {
                 error!(
                     "[{}] Failed to send message to {}: {}",
                     self.name, self.players[i].name, e
@@ -233,7 +251,7 @@ impl Room {
         let mut pieces = Vec::new();
         for (piece, count) in hand.iter() {
             for _i in 0..*count {
-                pieces.push(piece.clone());
+                pieces.push(*piece);
             }
         }
 
@@ -274,7 +292,7 @@ impl Room {
         self.started = true;
 
         // Tell the player that they have joined the room
-        ws_tx.unbounded_send(ServerMessage::JoinedRoom {
+        ws_tx.send(ServerMessage::JoinedRoom {
             room_name: self.name.clone(),
             players: self
                 .players
@@ -297,7 +315,8 @@ impl Room {
         if !self.connections.is_empty() {
             self.active_player = (self.active_player + 1) % self.players.len();
             while self.players[self.active_player].ws.is_none() {
-                self.active_player = (self.active_player + 1) % self.players.len();
+                self.active_player =
+                    (self.active_player + 1) % self.players.len();
             }
             debug!(
                 "[{}] Active player changed to {}",
@@ -318,7 +337,7 @@ impl Room {
             self.players[p].ws = None;
             for (k, v) in self.players[p].hand.drain() {
                 for _i in 0..v {
-                    self.game.bag.push(k.clone());
+                    self.game.bag.push(k);
                 }
             }
             self.game.shuffle();
@@ -347,7 +366,9 @@ impl Room {
             board.insert((*x, *y), *piece);
         }
         let played = pieces.iter().map(|p| (p.1, p.2)).collect::<Vec<_>>();
-        if !Game::invalid(&board).is_empty() || !Game::is_linear_connected(&board, &played) {
+        if !Game::invalid(&board).is_empty()
+            || !Game::is_linear_connected(&board, &played)
+        {
             warn!(
                 "[{}] Player {} tried to make an illegal move",
                 self.name, player.name
@@ -391,7 +412,10 @@ impl Room {
             self.send(self.active_player, ServerMessage::MoveAccepted(deal));
 
             // Broadcast the play to other players
-            self.broadcast_except(self.active_player, ServerMessage::Played(pieces.to_vec()));
+            self.broadcast_except(
+                self.active_player,
+                ServerMessage::Played(pieces.to_vec()),
+            );
 
             if over {
                 let winner = self
@@ -501,16 +525,20 @@ impl Room {
     }
 }
 
-fn next_room_name(rooms: &mut HashMap<String, RoomHandle>, handle: RoomHandle) -> String {
+fn next_room_name(
+    rooms: &mut HashMap<String, RoomHandle>,
+    handle: RoomHandle,
+) -> String {
     // This loop should only run once, unless we're starting to saturate the
     // space of possible room names (which is quite large)
-    let mut rng = rand::thread_rng();
+    use rand::RngExt;
+    let mut rng = rand::rng();
     loop {
         let room_name = format!(
             "{} {} {}",
-            WORD_LIST[rng.gen_range(0, WORD_LIST.len())],
-            WORD_LIST[rng.gen_range(0, WORD_LIST.len())],
-            WORD_LIST[rng.gen_range(0, WORD_LIST.len())]
+            WORD_LIST[rng.random_range(0..WORD_LIST.len())],
+            WORD_LIST[rng.random_range(0..WORD_LIST.len())],
+            WORD_LIST[rng.random_range(0..WORD_LIST.len())]
         );
         use std::collections::hash_map::Entry;
         if let Entry::Vacant(v) = rooms.entry(room_name.clone()) {
@@ -522,19 +550,20 @@ fn next_room_name(rooms: &mut HashMap<String, RoomHandle>, handle: RoomHandle) -
 
 async fn handle_connection(
     rooms: RoomList,
-    raw_stream: Async<TcpStream>,
+    raw_stream: TcpStream,
     addr: SocketAddr,
-    mut close_room: UnboundedSender<String>,
+    close_room: UnboundedSender<String>,
 ) -> Result<()> {
     info!("[{}] Incoming TCP connection", addr);
 
-    let mut ws_stream = async_tungstenite::accept_async(raw_stream).await?;
+    let mut ws_stream = tokio_tungstenite::accept_async(raw_stream).await?;
     info!("[{}] WebSocket connection established", addr);
 
     // Clients are only allowed to send text messages at this stage.
     // If they do anything else, then just disconnect.
     while let Some(Ok(WebsocketMessage::Binary(t))) = ws_stream.next().await {
-        let msg = bincode::deserialize::<ClientMessage>(&t)?;
+        let (msg, _): (ClientMessage, _) =
+            bincode::serde::decode_from_slice(&t, bincode::config::standard())?;
 
         // Try to interpret their message as joining a room
         match msg {
@@ -544,7 +573,7 @@ async fn handle_connection(
                 // We'll funnel all Websocket communication through one
                 // MPSC queue per room, with websockets running in their
                 // own little tasks writing to the queue.
-                let (write, read) = unbounded();
+                let (write, read) = unbounded_channel();
 
                 let room = Arc::new(Mutex::new(Room::default()));
                 let handle = RoomHandle { write, room };
@@ -562,14 +591,13 @@ async fn handle_connection(
                 // To avoid spawning a new task, we'll use this task to run
                 // both the player's tx/rx queues *and* the room itself.
                 let mut h = handle.clone();
-                join(
+                tokio::join!(
                     h.run_room(read),
                     run_player(player_name, addr, handle, ws_stream),
-                )
-                .await;
+                );
 
                 info!("[{}] All players left, closing room.", room_name);
-                if let Err(e) = close_room.send(room_name.clone()).await {
+                if let Err(e) = close_room.send(room_name.clone()) {
                     error!("[{}] Failed to close room: {}", room_name, e);
                 }
 
@@ -577,7 +605,10 @@ async fn handle_connection(
             }
             ClientMessage::JoinRoom(name, room_name) => {
                 // Log to link address and player name
-                info!("[{}] Player {} sent JoinRoom({})", addr, name, room_name);
+                info!(
+                    "[{}] Player {} sent JoinRoom({})",
+                    addr, name, room_name
+                );
 
                 // If the room name is valid, then join it by passing
                 // the new user and their connection into the room task
@@ -597,17 +628,31 @@ async fn handle_connection(
                         return Ok(());
                     } else {
                         // Not enough pieces, so report an error to the client
-                        let msg = ServerMessage::JoinFailed("Not enough pieces left".to_string());
-                        let encoded = bincode::serialize(&msg)?;
-                        ws_stream.send(WebsocketMessage::Binary(encoded)).await?;
+                        let msg = ServerMessage::JoinFailed(
+                            "Not enough pieces left".to_string(),
+                        );
+                        let encoded = bincode::serde::encode_to_vec(
+                            &msg,
+                            bincode::config::standard(),
+                        )?;
+                        ws_stream
+                            .send(WebsocketMessage::Binary(encoded.into()))
+                            .await?;
                     }
                 } else {
                     // Otherwise, reply that we don't know anything about that
                     // particular room name.
-                    let msg =
-                        ServerMessage::JoinFailed(format!("Could not find room '{}'", room_name));
-                    let encoded = bincode::serialize(&msg)?;
-                    ws_stream.send(WebsocketMessage::Binary(encoded)).await?;
+                    let msg = ServerMessage::JoinFailed(format!(
+                        "Could not find room '{}'",
+                        room_name
+                    ));
+                    let encoded = bincode::serde::encode_to_vec(
+                        &msg,
+                        bincode::config::standard(),
+                    )?;
+                    ws_stream
+                        .send(WebsocketMessage::Binary(encoded.into()))
+                        .await?;
                 }
             }
             // If they send an illegal message, then they obviously have ill
@@ -622,13 +667,12 @@ async fn handle_connection(
     Ok(())
 }
 
-fn main() -> Result<(), IoError> {
-    env_logger::from_env(Env::default().default_filter_or("pont_server=INFO")).init();
-
-    // Create an executor thread pool.
-    for _ in 0..num_cpus::get().max(1) {
-        std::thread::spawn(|| smol::run(future::pending::<()>()));
-    }
+#[tokio::main]
+async fn main() -> Result<(), IoError> {
+    env_logger::Builder::from_env(
+        Env::default().default_filter_or("pont_server=INFO"),
+    )
+    .init();
 
     let rooms = RoomList::new(Mutex::new(HashMap::new()));
 
@@ -636,33 +680,31 @@ fn main() -> Result<(), IoError> {
     // This task accepts room names through a MPSC queue, which all of the
     // room tasks push their names into.
     let close_room = {
-        let (tx, mut rx) = unbounded();
+        let (tx, mut rx) = unbounded_channel();
         let rooms = rooms.clone();
-        Task::spawn(async move {
-            while let Some(r) = rx.next().await {
+        tokio::spawn(async move {
+            while let Some(r) = rx.recv().await {
                 info!("Closing room [{}]", r);
                 rooms.lock().unwrap().remove(&r);
             }
-        })
-        .detach();
+        });
         tx
     };
 
     {
         // Periodically print the number of open rooms to the logs
         let rooms = rooms.clone();
-        Task::spawn(async move {
+        tokio::spawn(async move {
             let mut prev_count = 0;
             loop {
-                Timer::after(Duration::from_secs(60)).await;
+                tokio::time::sleep(Duration::from_secs(60)).await;
                 let count = rooms.lock().unwrap().len();
                 if count != prev_count {
                     info!("{} rooms open", count);
                     prev_count = count;
                 }
             }
-        })
-        .detach()
+        });
     }
 
     // The target address + port is optionally specified on the command line
@@ -670,23 +712,24 @@ fn main() -> Result<(), IoError> {
         .nth(1)
         .unwrap_or_else(|| "0.0.0.0:8080".to_string());
 
-    smol::block_on(async {
-        // Create the event loop and TCP listener we'll accept connections on.
-        info!("Listening on: {}", addr);
-        let listener = Async::<TcpListener>::bind(addr).expect("Could not create listener");
+    info!("Listening on: {addr}");
+    let listener = TcpListener::bind(addr)
+        .await
+        .expect("Could not create listener");
 
-        // The main loop accepts incoming connections asynchronously
-        while let Ok((stream, addr)) = listener.accept().await {
-            let close_room = close_room.clone();
-            let rooms = rooms.clone();
-            Task::spawn(async move {
-                if let Err(e) = handle_connection(rooms, stream, addr, close_room).await {
-                    warn!("Failed to handle connection from {}: {}", addr, e);
-                }
-            })
-            .detach();
-        }
-    });
+    while let Ok((stream, addr)) = listener.accept().await {
+        let close_room = close_room.clone(); // Replace with your actual logic
+        let rooms = rooms.clone(); // Replace with your actual logic
+
+        // Spawn a task to handle the connection
+        tokio::spawn(async move {
+            if let Err(e) =
+                handle_connection(rooms, stream, addr, close_room).await
+            {
+                warn!("Failed to handle connection from {addr}: {e}");
+            }
+        });
+    }
 
     Ok(())
 }
