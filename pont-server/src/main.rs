@@ -362,11 +362,14 @@ impl Room {
         let player = &mut self.players[self.active_player];
 
         let mut board = self.game.board.clone();
+        let mut overlap = false;
         for (piece, x, y) in pieces.iter() {
-            board.insert((*x, *y), *piece);
+            overlap |= board.insert((*x, *y), *piece).is_some();
         }
         let played = pieces.iter().map(|p| (p.1, p.2)).collect::<Vec<_>>();
-        if !Game::invalid(&board).is_empty()
+        if pieces.is_empty()
+            || overlap
+            || !Game::invalid(&board).is_empty()
             || !Game::is_linear_connected(&board, &played)
         {
             warn!(
