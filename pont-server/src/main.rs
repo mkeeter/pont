@@ -442,7 +442,16 @@ impl Room {
 
     fn on_swap(&mut self, pieces: &[Piece]) {
         let player = &mut self.players[self.active_player];
-        if !player.try_remove(pieces) {
+        if pieces.len() > self.game.bag.len() {
+            warn!(
+                "[{}] Player {} tried to swap {} pieces with only {} in the bag",
+                self.name,
+                player.name,
+                pieces.len(),
+                self.game.bag.len()
+            );
+            self.send(self.active_player, ServerMessage::MoveRejected);
+        } else if !player.try_remove(pieces) {
             warn!(
                 "[{}] Player {} tried to play an unowned piece",
                 self.name, player.name
